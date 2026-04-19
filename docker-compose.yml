@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: agenda-spending-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: agenda_app
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - spag_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  spag_postgres_data:
