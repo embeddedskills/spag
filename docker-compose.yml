@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: agenda_app
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     volumes:
       - spag_postgres_data:/var/lib/postgresql/data
 

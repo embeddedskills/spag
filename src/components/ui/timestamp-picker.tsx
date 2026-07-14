@@ -4,10 +4,14 @@ import ClockPicker from "./clock-picker";
 export default function TimestampPicker({ value, onChange }: { value?: string | null, onChange: (val: string) => void }) {
   // value is ISO-like string (e.g. 2026-03-07T14:30:00)
   const [date, setDate] = useState<string>("");
-  const [time, setTime] = useState<string>("");
+  const [time, setTime] = useState<string>("12:00");
 
   useEffect(() => {
-    if (!value) return;
+    if (!value) {
+      setDate("");
+      setTime("12:00");
+      return;
+    }
     const d = new Date(value);
     if (isNaN(d.getTime())) return;
     const yyyy = d.getFullYear().toString().padStart(4, "0");

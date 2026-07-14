@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { authClient } from "~/server/better-auth/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ShieldCheck, ArrowLeft, ChevronRight } from "lucide-react"; // npm install lucide-react
@@ -13,18 +12,52 @@ export default function LoginPage() {
 
   const handleLogin = async () => {
     setIsLoading(true);
-    const emailForAuth = `${username.trim()}@local.test`;
-    
-    await authClient.signIn.email({
-      email: emailForAuth,
-      password,
-    }, {
-      onSuccess: () => router.push("/"),
-      onError: (ctx) => {
+    const trimmedUsername = username.trim();
+
+    try {
+      const response = await fetch("/api/auth/sign-in/username", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: trimmedUsername,
+          password,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Invalid username or password");
+      }
+
+      router.push("/");
+    } catch (error) {
+      const legacyEmail = `${trimmedUsername}@local.test`;
+
+      try {
+        const legacyResponse = await fetch("/api/auth/sign-in/email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: legacyEmail,
+            password,
+          }),
+        });
+
+        if (!legacyResponse.ok) {
+          throw new Error("Invalid username or password");
+        }
+
+        router.push("/");
+      } catch (legacyError) {
         setIsLoading(false);
-        alert(ctx.error?.message ?? "Login failed");
-      },
-    });
+        alert(legacyError instanceof Error ? legacyError.message : "Login failed");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

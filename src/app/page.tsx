@@ -16,7 +16,7 @@ export default function HomePage() {
           <div className="absolute inset-0 bg-blue-500 rounded-full blur-xl opacity-20 animate-pulse"></div>
           <LayoutDashboard className="w-12 h-12 text-blue-500 relative animate-bounce" />
         </div>
-        <span className="text-xs uppercase tracking-[0.3em] font-bold text-gray-500">Syncing Nexus</span>
+        <span className="text-xs uppercase tracking-[0.3em] font-bold text-gray-500">Syncing</span>
       </div>
     </div>
   );

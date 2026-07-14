@@ -105,12 +105,14 @@ export const agendaItems = createTable("agenda_items", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   type: text("type").notNull(), // 'task', 'reminder', 'note'
+  category: text("category").notNull().default("Other"),
   content: text("content"),
   targetDate: timestamp("target_date").notNull(),
   isCompleted: boolean("is_completed").default(false),
   notified: boolean("notified").$defaultFn(() => false).notNull(),
   repeatInterval: text("repeat_interval").default("none"), // 'daily', 'weekly', 'monthly', 'none'
   pinned: boolean("pinned").default(false),
+  sticky: boolean("sticky").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   userId: text("user_id")
     .notNull()

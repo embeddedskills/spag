@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { username } from "better-auth/plugins";
 
 import { env } from "~/env";
 import { db } from "~/server/db";
@@ -27,6 +28,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
   },
+  plugins: [username()],
   // ADD THIS FOR YOUR PHONE:
   trustedOrigins: [
     "http://localhost:3000",

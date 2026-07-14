@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc"; // 1. Use protectedProcedure
 import { agendaItems } from "~/server/db/schema";
-import { eq, and, desc } from "drizzle-orm"; // 2. Add 'and' and 'desc'
+import { eq, and, desc, inArray } from "drizzle-orm"; // 2. Add 'and' and 'desc'
 
 export const agendaRouter = createTRPCRouter({
   create: protectedProcedure
@@ -9,18 +9,26 @@ export const agendaRouter = createTRPCRouter({
       title: z.string(), 
       content: z.string().optional(),
       type: z.string(),
+      category: z.string().optional(),
       repeatInterval: z.string().optional(),
       startTime: z.date().optional(),
-      pinned: z.boolean().optional()
+      pinned: z.boolean().optional(),
+      sticky: z.boolean().optional()
     }))
     .mutation(async ({ ctx, input }) => {
+      if (input.type !== "note" && !input.startTime) {
+        throw new Error("Tasks and reminders require a target date/time.");
+      }
+
       return await ctx.db.insert(agendaItems).values({
         title: input.title,
         content: input.content,
         type: input.type,
-        targetDate: input.startTime ?? new Date(),
+        category: input.category ?? "Other",
+        targetDate: input.type === "note" ? new Date() : input.startTime!,
         repeatInterval: input.repeatInterval ?? "none",
         pinned: input.pinned ?? false,
+        sticky: input.sticky ?? false,
         userId: ctx.session.user.id, // 3. Use actual user ID
       });
     }),
@@ -48,6 +56,19 @@ export const agendaRouter = createTRPCRouter({
         );
     }),
 
+  bulkDelete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db
+        .delete(agendaItems)
+        .where(
+          and(
+            eq(agendaItems.userId, ctx.session.user.id),
+            inArray(agendaItems.id, input.ids)
+          )
+        );
+    }),
+
   toggleComplete: protectedProcedure
     .input(z.object({ id: z.string(), isCompleted: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
@@ -62,27 +83,77 @@ export const agendaRouter = createTRPCRouter({
         );
     }),
 
+  bulkSetComplete: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1), isCompleted: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db
+        .update(agendaItems)
+        .set({ isCompleted: input.isCompleted })
+        .where(
+          and(
+            eq(agendaItems.userId, ctx.session.user.id),
+            inArray(agendaItems.id, input.ids)
+          )
+        );
+    }),
+
+  bulkSetSticky: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1), sticky: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db
+        .update(agendaItems)
+        .set({ sticky: input.sticky })
+        .where(
+          and(
+            eq(agendaItems.userId, ctx.session.user.id),
+            inArray(agendaItems.id, input.ids)
+          )
+        );
+    }),
+
+  bulkSetCategory: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()).min(1), category: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db
+        .update(agendaItems)
+        .set({ category: input.category })
+        .where(
+          and(
+            eq(agendaItems.userId, ctx.session.user.id),
+            inArray(agendaItems.id, input.ids)
+          )
+        );
+    }),
+
   update: protectedProcedure
     .input(z.object({ 
       id: z.string(),
       title: z.string(), 
       content: z.string().optional(),
       type: z.string(),
+      category: z.string().optional(),
       repeatInterval: z.string().optional(),
       startTime: z.date().optional(),
       pinned: z.boolean().optional(),
+      sticky: z.boolean().optional(),
       isCompleted: z.boolean().optional()
     }))
     .mutation(async ({ ctx, input }) => {
+      if (input.type !== "note" && !input.startTime) {
+        throw new Error("Tasks and reminders require a target date/time.");
+      }
+
       return await ctx.db
         .update(agendaItems)
         .set({
           title: input.title,
           content: input.content,
           type: input.type,
-          targetDate: input.startTime ?? new Date(),
+          category: input.category ?? "Other",
+          targetDate: input.type === "note" ? new Date() : input.startTime!,
           repeatInterval: input.repeatInterval ?? "none",
           pinned: input.pinned ?? false,
+          sticky: input.sticky ?? false,
           isCompleted: input.isCompleted ?? false,
         })
         .where(

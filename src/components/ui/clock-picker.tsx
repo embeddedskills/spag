@@ -35,11 +35,12 @@ export default function ClockPicker({ value, onChange }: { value?: string, onCha
   const handlePointClick = (val: number) => {
     if (mode === "hour") {
       setHour24(val);
+      const hhS = val.toString().padStart(2, "0");
+      const mmS = minute.toString().padStart(2, "0");
+      onChange(`${hhS}:${mmS}`);
       setMode("minute");
     } else {
       setMinute(val);
-      const time = `${val === 24 ? "00" : hour24.toString().padStart(2, "0")}:${val.toString().padStart(2, "0")}`;
-      // Logic for minute selection update
       const hhS = hour24.toString().padStart(2, "0");
       const mmS = val.toString().padStart(2, "0");
       onChange(`${hhS}:${mmS}`);
