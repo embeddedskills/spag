@@ -82,6 +82,8 @@ docker-compose up -d
 ```bash
 npm run db:push
 ```
+You need to also run db:generate
+Migrations from drizzle/ must be commited!
 
 6. Run development server
 ```bash
