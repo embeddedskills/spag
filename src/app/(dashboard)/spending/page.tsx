@@ -4,10 +4,9 @@ import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import { 
   Plus, Wallet, TrendingUp, Clock, X, 
-  ArrowLeft, CreditCard, Banknote, Bitcoin, 
+  CreditCard, Banknote, Bitcoin, 
   ChevronRight, Calendar
 } from "lucide-react";
-import Link from "next/link";
 
 export default function SpendingPage() {
   const [mounted, setMounted] = useState(false);
@@ -41,10 +40,6 @@ export default function SpendingPage() {
 
       {/* LIGHT NEXUS HEADER */}
       <header className="max-w-4xl mx-auto flex justify-between items-center mb-16">
-        <Link href="/" className="group flex items-center gap-2 text-slate-400 hover:text-blue-600 transition-all">
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-[10px] font-black uppercase tracking-[0.3em]">System / Wealth</span>
-        </Link>
         <div className="text-right">
           <p className="text-[10px] text-blue-500 uppercase tracking-[0.4em] font-black mb-1">Financial Stream</p>
           <h1 className="text-3xl font-black tracking-tighter text-slate-800 uppercase">Ledger</h1>

@@ -5,9 +5,15 @@ import { api } from "~/trpc/react";
 import TimestampPicker from "~/components/ui/timestamp-picker";
 import { 
   Trash2, Plus, Calendar, Bell, StickyNote, 
-  CheckCircle, Repeat, ArrowLeft, Loader2, Clock, X, Pin 
+  CheckCircle, Repeat, Loader2, Clock, X, Pin 
 } from "lucide-react";
-import Link from "next/link";
+import { RealTimeHeader } from "~/components/ui/realtime";
+
+function getMaxNoteColumns(width: number): 1 | 2 | 3 {
+  if (width >= 1024) return 3;
+  if (width >= 640) return 2;
+  return 1;
+}
 
 export default function AgendaPage() {
   const [mounted, setMounted] = useState(false);
@@ -21,6 +27,8 @@ export default function AgendaPage() {
   const [sortBy, setSortBy] = useState<'targetDate' | 'createdAt'>('targetDate');
   const [taskGrid, setTaskGrid] = useState<1 | 2 | 3 | 4>(2);
   const [noteGrid, setNoteGrid] = useState<1 | 2 | 3>(3);
+  const [maxNoteGrid, setMaxNoteGrid] = useState<1 | 2 | 3>(3);
+  const [editingCreatedAt, setEditingCreatedAt] = useState<Date | null>(null);
   const [pinned, setPinned] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [sticky, setSticky] = useState(false);
@@ -51,6 +59,21 @@ export default function AgendaPage() {
   // 1. Hydration Fix: Ensure component is mounted before rendering
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const syncNoteGridForViewport = () => {
+      const maxAllowed = getMaxNoteColumns(window.innerWidth);
+      setMaxNoteGrid(maxAllowed);
+      setNoteGrid((prev) => (prev > maxAllowed ? maxAllowed : prev));
+    };
+
+    syncNoteGridForViewport();
+    window.addEventListener("resize", syncNoteGridForViewport);
+
+    return () => {
+      window.removeEventListener("resize", syncNoteGridForViewport);
+    };
   }, []);
 
   const utils = api.useUtils();
@@ -169,6 +192,7 @@ export default function AgendaPage() {
     setSticky(false);
     setCategory("Other");
     setEditingId(null);
+    setEditingCreatedAt(null);
   };
 
   const addMutation = api.agenda.create.useMutation({
@@ -237,6 +261,7 @@ export default function AgendaPage() {
     setSticky(item.sticky || false);
     setCategory(item.category ?? "Other");
     setEditingId(item.id);
+    setEditingCreatedAt(item.createdAt ? new Date(item.createdAt) : null);
     setIsOpen(true);
     // Scroll to top to show the form
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -313,13 +338,12 @@ export default function AgendaPage() {
     <main className="min-h-screen bg-black text-white p-3 sm:p-6 md:p-12 lg:p-20">
       {/* NEXUS HEADER */}
       <header className="max-w-4xl mx-auto flex flex-col gap-2 sm:gap-3 sm:flex-row sm:justify-between sm:items-center mb-6 sm:mb-16">
-        <Link href="/" className="group flex items-center gap-2 text-gray-500 hover:text-white transition-all">
-          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-[10px] font-black uppercase tracking-[0.3em]">System / Root</span>
-        </Link>
         <div className="text-right">
           <p className="text-[9px] sm:text-[10px] text-blue-500 uppercase tracking-[0.4em] font-black mb-1">Active Timeline</p>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">AGENDA</h1>
+        </div>
+        <div className="text-right">
+          <RealTimeHeader />
         </div>
       </header>
 
@@ -374,6 +398,14 @@ export default function AgendaPage() {
                 </button>
               ))}
             </div>
+
+            {editingId && type === 'reminder' && editingCreatedAt && (
+              <div className="mb-4 sm:mb-6 rounded-xl border border-purple-500/30 bg-purple-500/10 p-3 sm:p-4">
+                <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-purple-300">
+                  Created at {editingCreatedAt.toLocaleDateString()} {editingCreatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+            )}
 
             <div className="space-y-4 sm:space-y-5">
               <input 
@@ -446,6 +478,7 @@ export default function AgendaPage() {
                     <option value="none">Discrete Event (No Repeat)</option>
                     <option value="daily">Daily Synchronisation</option>
                     <option value="weekly">Weekly Cycle</option>
+                    <option value="monthly">Monthly Cycle</option>
                   </select>
                 </div>
               )}
@@ -1008,7 +1041,7 @@ export default function AgendaPage() {
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-xl font-bold text-gray-400">Notes Archive</h2>
               <div className="flex gap-2">
-                {[1, 2, 3].map(cols => (
+                {[1, 2, 3].filter((cols) => cols <= maxNoteGrid).map(cols => (
                   <button 
                     key={cols}
                     onClick={() => setNoteGrid(cols as 1 | 2 | 3)}
