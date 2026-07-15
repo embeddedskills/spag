@@ -3,6 +3,10 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Clock, Check } from "lucide-react";
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
 export default function ClockPicker({ value, onChange }: { value?: string, onChange: (val: string) => void }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
@@ -45,6 +49,34 @@ export default function ClockPicker({ value, onChange }: { value?: string, onCha
       const mmS = val.toString().padStart(2, "0");
       onChange(`${hhS}:${mmS}`);
     }
+  };
+
+  const updateManualHour = (raw: string) => {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) {
+      setHour24(0);
+      onChange(`00:${minute.toString().padStart(2, "0")}`);
+      return;
+    }
+
+    const parsed = Number.parseInt(digits.slice(-2), 10);
+    const nextHour = Number.isNaN(parsed) ? 0 : clamp(parsed, 0, 23);
+    setHour24(nextHour);
+    onChange(`${nextHour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`);
+  };
+
+  const updateManualMinute = (raw: string) => {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) {
+      setMinute(0);
+      onChange(`${hour24.toString().padStart(2, "0")}:00`);
+      return;
+    }
+
+    const parsed = Number.parseInt(digits.slice(-2), 10);
+    const nextMinute = Number.isNaN(parsed) ? 0 : clamp(parsed, 0, 59);
+    setMinute(nextMinute);
+    onChange(`${hour24.toString().padStart(2, "0")}:${nextMinute.toString().padStart(2, "0")}`);
   };
 
   const clockData = useMemo(() => {
@@ -163,12 +195,33 @@ export default function ClockPicker({ value, onChange }: { value?: string, onCha
               <button onClick={() => setMode("hour")} className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all ${mode === 'hour' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>HH</button>
               <button onClick={() => setMode("minute")} className={`px-4 py-1.5 rounded-lg text-[10px] font-black tracking-widest uppercase transition-all ${mode === 'minute' ? 'bg-blue-600 text-white' : 'text-gray-500'}`}>MM</button>
             </div>
-            <button 
-              onClick={() => setOpen(false)} 
-              className="p-3 bg-white text-black rounded-xl active:scale-90 transition-transform"
-            >
-              <Check size={18} strokeWidth={3} />
-            </button>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={3}
+                value={hour24.toString().padStart(2, "0")}
+                onChange={(e) => updateManualHour(e.target.value)}
+                className="w-12 rounded-lg border border-gray-700 bg-black/50 px-2 py-1 text-center text-xs font-black tracking-widest text-gray-100 outline-none focus:border-blue-500"
+                aria-label="Hours"
+              />
+              <span className="text-gray-500">:</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={3}
+                value={minute.toString().padStart(2, "0")}
+                onChange={(e) => updateManualMinute(e.target.value)}
+                className="w-12 rounded-lg border border-gray-700 bg-black/50 px-2 py-1 text-center text-xs font-black tracking-widest text-gray-100 outline-none focus:border-blue-500"
+                aria-label="Minutes"
+              />
+              <button
+                onClick={() => setOpen(false)}
+                className="p-3 bg-white text-black rounded-xl active:scale-90 transition-transform"
+              >
+                <Check size={18} strokeWidth={3} />
+              </button>
+            </div>
           </div>
         </div>,
         document.body

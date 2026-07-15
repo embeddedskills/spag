@@ -3,7 +3,6 @@ import { authClient } from "~/server/better-auth/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Calendar, Wallet, LayoutDashboard, LogOut, Sparkles, TrendingUp, Clock } from "lucide-react";
-import UpcomingWidget from "~/components/ui/upcoming";
 
 export default function HomePage() {
   const { data: session, isPending } = authClient.useSession();
@@ -126,7 +125,6 @@ export default function HomePage() {
           <Wallet className="absolute -bottom-6 -right-6 w-40 h-40 text-green-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
         </Link>
       </div>
-      <UpcomingWidget />
     </main>
   );
 }

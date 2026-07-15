@@ -8,7 +8,8 @@ import {
   timestamp,
   decimal,
   integer,
-  uuid
+  uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
 
 export const createTable = pgTableCreator((name) => `spag_${name}`);
@@ -132,3 +133,12 @@ export const agendaItemsRelations = relations(agendaItems, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: varchar("id", { length: 255 }).notNull().primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: varchar("user_id", { length: 255 }).references(() => user.id, { onDelete: "cascade" }),
+  endpoint: text("endpoint").notNull().unique(), // The unique browser gateway URL
+  p256dh: text("p256dh").notNull(),              // Browser's public encryption key
+  auth: text("auth").notNull(),                  // Browser's auth secret
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

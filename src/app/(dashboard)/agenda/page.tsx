@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import TimestampPicker from "~/components/ui/timestamp-picker";
+import { useSearchParams } from "next/navigation";
 import { 
   Trash2, Plus, Calendar, Bell, StickyNote, 
   CheckCircle, Repeat, Loader2, Clock, X, Pin 
@@ -16,6 +17,7 @@ function getMaxNoteColumns(width: number): 1 | 2 | 3 {
 }
 
 export default function AgendaPage() {
+  const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [title, setTitle] = useState("");
@@ -41,6 +43,7 @@ export default function AgendaPage() {
   const [searchContent, setSearchContent] = useState("");
   const [searchCategory, setSearchCategory] = useState("all");
   const [searchType, setSearchType] = useState("all");
+  const [handledEditTargetId, setHandledEditTargetId] = useState<string | null>(null);
 
   const categoryOptions = ["Work", "Personal", "Family", "Other"] as const;
   const getCategoryBadgeClasses = (value: string | null | undefined) => {
@@ -127,6 +130,7 @@ export default function AgendaPage() {
   const expiredStickyItems = filteredStickyItems.filter((item) => isExpiredItem(item));
   const activeTasksReminders = filteredTasksReminders.filter((item) => !isExpiredItem(item));
   const expiredTasksReminders = filteredTasksReminders.filter((item) => isExpiredItem(item));
+  const activeSequenceCount = activeStickyItems.length + activeTasksReminders.length;
   const expiredItems = [...expiredStickyItems, ...expiredTasksReminders].sort(
     (a, b) => new Date(b.targetDate).getTime() - new Date(a.targetDate).getTime(),
   );
@@ -170,6 +174,8 @@ export default function AgendaPage() {
   const filteredNotes = notes.filter((item) => matchesFilters(item));
   const filteredResultCount = filteredStickyItems.length + filteredTasksReminders.length + filteredNotes.length;
 
+  const editTargetId = searchParams.get("edit");
+
   useEffect(() => {
     if (!bulkMode) {
       setSelectedIds([]);
@@ -180,6 +186,26 @@ export default function AgendaPage() {
     const validIds = new Set((items ?? []).map((item) => item.id));
     setSelectedIds((prev) => prev.filter((id) => validIds.has(id)));
   }, [items]);
+
+  useEffect(() => {
+    if (activeTasksReminders.length === 1 && taskGrid !== 1) {
+      setTaskGrid(1);
+    }
+  }, [activeTasksReminders.length, taskGrid]);
+
+  useEffect(() => {
+    if (!editTargetId || !items?.length) return;
+    if (handledEditTargetId === editTargetId) return;
+
+    const targetItem = items.find((item) => item.id === editTargetId);
+    if (!targetItem) {
+      setHandledEditTargetId(editTargetId);
+      return;
+    }
+
+    startEdit(targetItem);
+    setHandledEditTargetId(editTargetId);
+  }, [editTargetId, handledEditTargetId, items]);
 
   const resetForm = () => {
     setTitle("");
@@ -314,9 +340,13 @@ export default function AgendaPage() {
   };
 
   const visibleSelectableItems = [...activeStickyItems, ...activeTasksReminders, ...expiredItems, ...filteredNotes];
+  const visibleExpiredIds = expiredItems.map((item) => item.id);
   const allVisibleSelected =
     visibleSelectableItems.length > 0 &&
     visibleSelectableItems.every((item) => selectedIds.includes(item.id));
+  const allExpiredVisibleSelected =
+    visibleExpiredIds.length > 0 &&
+    visibleExpiredIds.every((id) => selectedIds.includes(id));
 
   const toggleSelectAllVisible = () => {
     if (allVisibleSelected) {
@@ -324,6 +354,22 @@ export default function AgendaPage() {
       return;
     }
     setSelectedIds(visibleSelectableItems.map((item) => item.id));
+  };
+
+  const toggleSelectExpiredVisible = () => {
+    if (visibleExpiredIds.length === 0) return;
+
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+
+      if (allExpiredVisibleSelected) {
+        visibleExpiredIds.forEach((id) => next.delete(id));
+      } else {
+        visibleExpiredIds.forEach((id) => next.add(id));
+      }
+
+      return Array.from(next);
+    });
   };
 
   const isBulkBusy =
@@ -353,7 +399,7 @@ export default function AgendaPage() {
           <div>
             <h2 className="text-base sm:text-xl font-bold text-gray-400">{editingId ? "Edit Sequence" : activeStickyItems.length > 0 ? "Normal Priority" : "Upcoming Events"}</h2>
             <p className="text-[9px] sm:text-xs text-gray-600 uppercase tracking-widest mt-1">
-              {isLoading ? "Syncing..." : `${activeTasksReminders.length} sequences active`}
+              {isLoading ? "Syncing..." : `${activeSequenceCount} sequences active`}
             </p>
           </div>
           <button 
@@ -418,7 +464,7 @@ export default function AgendaPage() {
                 value={content} 
                 onChange={e => setContent(e.target.value)} 
                 placeholder="Supplementary data / Description..." 
-                className="w-full bg-black/60 border border-gray-800 p-4 sm:p-5 rounded-2xl min-h-[100px] sm:min-h-[120px] outline-none focus:border-blue-600 transition-all placeholder:text-gray-700" 
+                className={`w-full bg-black/60 border border-gray-800 p-4 sm:p-5 rounded-2xl outline-none focus:border-blue-600 transition-all placeholder:text-gray-700 resize-y ${type === 'note' ? 'min-h-[200px] sm:min-h-[240px]' : 'min-h-[100px] sm:min-h-[120px]'}`}
               />
 
               <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-black/40 p-4 sm:p-5 rounded-2xl border border-gray-800">
@@ -612,6 +658,13 @@ export default function AgendaPage() {
                 >
                   {allVisibleSelected ? 'Clear Selection' : 'Select All'}
                 </button>
+                <button
+                  onClick={toggleSelectExpiredVisible}
+                  disabled={visibleExpiredIds.length === 0}
+                  className="px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-widest bg-red-950/40 border border-red-800/50 text-red-200 hover:border-red-600 disabled:opacity-40"
+                >
+                  {allExpiredVisibleSelected ? 'Clear Expired' : 'Select Expired'}
+                </button>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -740,7 +793,7 @@ export default function AgendaPage() {
         {/* TIMELINE LIST (Normal Priority) */}
         {isLoading ? (
           <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>
-        ) : activeTasksReminders.length === 0 ? (
+        ) : activeSequenceCount === 0 ? (
           <div className="text-center p-20 bg-gray-900/20 border border-dashed border-gray-800 rounded-[2.5rem]">
             <p className="text-gray-600 text-xs uppercase tracking-[0.4em] font-black">{filteredResultCount === 0 ? 'No Search Matches Found' : 'No Active Sequences Found'}</p>
             {expiredItems.length > 0 && (

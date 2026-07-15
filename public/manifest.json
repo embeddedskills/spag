@@ -1,0 +1,23 @@
+{
+  "name": "Agenda Management App",
+  "short_name": "Agenda",
+  "description": "Keep track of your daily agenda items seamlessly.",
+  "theme_color": "#020617",
+  "background_color": "#020617",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/icons/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/badge.png",
+      "sizes": "340x340",
+      "type": "image/png"
+    }
+  ]
+}

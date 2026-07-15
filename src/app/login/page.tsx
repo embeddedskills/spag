@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { authClient } from "~/server/better-auth/client";
 import { ShieldCheck, ArrowLeft, ChevronRight } from "lucide-react"; // npm install lucide-react
 
 export default function LoginPage() {
@@ -15,46 +16,20 @@ export default function LoginPage() {
     const trimmedUsername = username.trim();
 
     try {
-      const response = await fetch("/api/auth/sign-in/username", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username: trimmedUsername,
-          password,
-        }),
+      const { error } = await authClient.signIn.username({
+        username: trimmedUsername,
+        password,
+        callbackURL: "/",
       });
 
-      if (!response.ok) {
-        throw new Error("Invalid username or password");
+      if (error) {
+        throw new Error(error.message || "Invalid username or password");
       }
 
-      router.push("/");
+      router.replace("/");
+      router.refresh();
     } catch (error) {
-      const legacyEmail = `${trimmedUsername}@local.test`;
-
-      try {
-        const legacyResponse = await fetch("/api/auth/sign-in/email", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: legacyEmail,
-            password,
-          }),
-        });
-
-        if (!legacyResponse.ok) {
-          throw new Error("Invalid username or password");
-        }
-
-        router.push("/");
-      } catch (legacyError) {
-        setIsLoading(false);
-        alert(legacyError instanceof Error ? legacyError.message : "Login failed");
-      }
+      alert(error instanceof Error ? error.message : "Login failed");
     } finally {
       setIsLoading(false);
     }
