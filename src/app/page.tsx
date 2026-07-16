@@ -1,12 +1,12 @@
 "use client";
 import { authClient } from "~/server/better-auth/client";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Calendar, Wallet, LayoutDashboard, LogOut, Sparkles, TrendingUp, Clock } from "lucide-react";
+import { Calendar, Wallet, LayoutDashboard, TrendingUp, Clock } from "lucide-react";
+import AppHeader from "~/components/ui/app-header";
+
 
 export default function HomePage() {
   const { data: session, isPending } = authClient.useSession();
-  const router = useRouter();
 
   if (isPending) return (
     <div className="flex h-screen items-center justify-center bg-black text-white">
@@ -60,71 +60,55 @@ export default function HomePage() {
   }
 
   return (
-    <main className="min-h-screen bg-black text-white p-6 md:p-12 lg:p-20">
-      <header className="flex justify-between items-start mb-16">
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <div className="absolute inset-0 bg-blue-500 rounded-xl blur-md opacity-20"></div>
-            <div className="relative p-3 bg-gray-900 border border-gray-800 rounded-2xl">
-               <Sparkles className="w-6 h-6 text-blue-500" />
-            </div>
-          </div>
-          <div>
-            <p className="text-[10px] text-blue-500 uppercase tracking-[0.3em] font-black mb-1">Commander</p>
-            <h1 className="text-2xl font-bold tracking-tight">Welcome, {session.user.name}</h1>
-          </div>
+    <AppHeader>
+      <main className="theme-invert-on-light min-h-0 bg-black p-6 text-white md:p-12 lg:p-20">
+        <div className="mx-auto mb-8 max-w-6xl">
+          <p className="mb-1 text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">S P A G</p>
+          <h1 className="text-2xl font-bold tracking-tight text-white">Welcome, {session.user.name}</h1>
         </div>
-        
-        <button 
-          onClick={() => authClient.signOut({ fetchOptions: { onSuccess: () => router.push("/login") } })}
-          className="group flex items-center gap-2 text-[10px] font-black tracking-widest uppercase bg-red-900/10 text-red-500 px-4 py-2 rounded-xl border border-red-900/20 hover:bg-red-500 hover:text-white transition-all"
-        >
-          <LogOut className="w-3 h-3 transition-transform group-hover:-translate-x-1" />
-          Logout
-        </button>
-      </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto">
+        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-3 sm:gap-6 lg:gap-8">
         {/* Agenda Card */}
-        <Link href="/agenda" className="group relative p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[2.5rem] border border-gray-800 hover:border-blue-500/50 transition-all duration-500 active:scale-[0.98]">
+        <Link href="/agenda" className="group relative min-w-0 p-4 sm:p-7 lg:p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[1.5rem] sm:rounded-[2.5rem] border border-gray-800 hover:border-blue-500/50 transition-all duration-500 active:scale-[0.98]">
           <div className="flex flex-col h-full justify-between">
             <div>
-              <div className="w-14 h-14 bg-blue-600/10 rounded-2xl flex items-center justify-center mb-8 border border-blue-500/20 group-hover:scale-110 transition-transform duration-500">
-                <Calendar className="w-7 h-7 text-blue-500" />
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-blue-600/10 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-8 border border-blue-500/20 group-hover:scale-110 transition-transform duration-500">
+                <Calendar className="w-5 h-5 sm:w-7 sm:h-7 text-blue-500" />
               </div>
-              <h2 className="text-3xl font-bold mb-3 tracking-tight">Agenda</h2>
-              <p className="text-gray-500 text-sm leading-relaxed max-w-[240px]">
+              <h2 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-3 tracking-tight">Agenda</h2>
+              <p className="text-gray-500 text-xs sm:text-sm leading-relaxed">
                 Strategic task management and timeline synchronization.
               </p>
             </div>
-            <div className="mt-12 flex items-center gap-2 text-[10px] font-black text-blue-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-              <Clock className="w-3 h-3" />
+            <div className="mt-6 sm:mt-12 flex items-center gap-2 text-[9px] sm:text-[10px] font-black text-blue-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+              <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
               Access Timeline
             </div>
           </div>
-          <Calendar className="absolute -bottom-6 -right-6 w-40 h-40 text-blue-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
+          <Calendar className="absolute -bottom-4 -right-4 sm:-bottom-6 sm:-right-6 w-20 h-20 sm:w-40 sm:h-40 text-blue-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
         </Link>
 
         {/* Spending Card */}
-        <Link href="/spending" className="group relative p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[2.5rem] border border-gray-800 hover:border-green-500/50 transition-all duration-500 active:scale-[0.98]">
+        <Link href="/spending" className="group relative min-w-0 p-4 sm:p-7 lg:p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[1.5rem] sm:rounded-[2.5rem] border border-gray-800 hover:border-green-500/50 transition-all duration-500 active:scale-[0.98]">
           <div className="flex flex-col h-full justify-between">
             <div>
-              <div className="w-14 h-14 bg-green-600/10 rounded-2xl flex items-center justify-center mb-8 border border-green-500/20 group-hover:scale-110 transition-transform duration-500">
-                <Wallet className="w-7 h-7 text-green-500" />
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-green-600/10 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-8 border border-green-500/20 group-hover:scale-110 transition-transform duration-500">
+                <Wallet className="w-5 h-5 sm:w-7 sm:h-7 text-green-500" />
               </div>
-              <h2 className="text-3xl font-bold mb-3 tracking-tight">Spending</h2>
-              <p className="text-gray-500 text-sm leading-relaxed max-w-[240px]">
+              <h2 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-3 tracking-tight">Spending</h2>
+              <p className="text-gray-500 text-xs sm:text-sm leading-relaxed">
                 Capital flow tracking and automated budget analytics.
               </p>
             </div>
-            <div className="mt-12 flex items-center gap-2 text-[10px] font-black text-green-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-              <TrendingUp className="w-3 h-3" />
+            <div className="mt-6 sm:mt-12 flex items-center gap-2 text-[9px] sm:text-[10px] font-black text-green-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+              <TrendingUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
               Audit Wealth
             </div>
           </div>
-          <Wallet className="absolute -bottom-6 -right-6 w-40 h-40 text-green-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
+          <Wallet className="absolute -bottom-4 -right-4 sm:-bottom-6 sm:-right-6 w-20 h-20 sm:w-40 sm:h-40 text-green-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
         </Link>
-      </div>
-    </main>
+        </div>
+      </main>
+    </AppHeader>
   );
 }

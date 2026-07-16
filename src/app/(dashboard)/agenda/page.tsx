@@ -8,12 +8,12 @@ import {
   Trash2, Plus, Calendar, Bell, StickyNote, 
   CheckCircle, Repeat, Loader2, Clock, X, Pin 
 } from "lucide-react";
-import { RealTimeHeader } from "~/components/ui/realtime";
 
-function getMaxNoteColumns(width: number): 1 | 2 | 3 {
-  if (width >= 1024) return 3;
-  if (width >= 640) return 2;
-  return 1;
+function getStoredAgendaView(key: "agenda-timeline-view" | "agenda-notes-view") {
+  if (typeof window === "undefined") return "list" as const;
+
+  const value = window.localStorage.getItem(key);
+  return value === "grid" ? "grid" : "list";
 }
 
 export default function AgendaPage() {
@@ -27,9 +27,8 @@ export default function AgendaPage() {
   const [target, setTarget] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'targetDate' | 'createdAt'>('targetDate');
-  const [taskGrid, setTaskGrid] = useState<1 | 2 | 3 | 4>(2);
-  const [noteGrid, setNoteGrid] = useState<1 | 2 | 3>(3);
-  const [maxNoteGrid, setMaxNoteGrid] = useState<1 | 2 | 3>(3);
+  const [timelineView, setTimelineView] = useState<"list" | "grid">(() => getStoredAgendaView("agenda-timeline-view"));
+  const [notesView, setNotesView] = useState<"list" | "grid">(() => getStoredAgendaView("agenda-notes-view"));
   const [editingCreatedAt, setEditingCreatedAt] = useState<Date | null>(null);
   const [pinned, setPinned] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -44,6 +43,9 @@ export default function AgendaPage() {
   const [searchCategory, setSearchCategory] = useState("all");
   const [searchType, setSearchType] = useState("all");
   const [handledEditTargetId, setHandledEditTargetId] = useState<string | null>(null);
+  const [pinnedExpanded, setPinnedExpanded] = useState(true);
+  const [upcomingExpanded, setUpcomingExpanded] = useState(true);
+  const [pastDueExpanded, setPastDueExpanded] = useState(true);
 
   const categoryOptions = ["Work", "Personal", "Family", "Other"] as const;
   const getCategoryBadgeClasses = (value: string | null | undefined) => {
@@ -59,30 +61,172 @@ export default function AgendaPage() {
     }
   };
 
+  const getTimelineSurfaceClasses = (tone: "blue" | "purple" | "indigo" | "gray" = "blue") => {
+    switch (tone) {
+      case "purple":
+        return "border-purple-500/15 bg-gradient-to-r from-purple-950/18 via-gray-950/40 to-transparent hover:border-purple-500/30 hover:from-purple-950/28";
+      case "indigo":
+        return "border-indigo-500/15 bg-gradient-to-r from-indigo-950/18 via-gray-950/40 to-transparent hover:border-indigo-500/30 hover:from-indigo-950/28";
+      case "gray":
+        return "border-gray-700/50 bg-gradient-to-r from-gray-900/45 via-gray-950/55 to-transparent hover:border-gray-600/70 hover:from-gray-900/60";
+      default:
+        return "border-blue-500/15 bg-gradient-to-r from-blue-950/18 via-gray-950/40 to-transparent hover:border-blue-500/30 hover:from-blue-950/28";
+    }
+  };
+
+  const getTimelineAccentClasses = (tone: "blue" | "purple" | "indigo" | "gray" = "blue") => {
+    switch (tone) {
+      case "purple":
+        return "bg-purple-500";
+      case "indigo":
+        return "bg-indigo-500";
+      case "gray":
+        return "bg-gray-600";
+      default:
+        return "bg-blue-500";
+    }
+  };
+
+  const getTimelineChipClasses = (tone: "blue" | "purple" | "indigo" | "gray" = "blue") => {
+    switch (tone) {
+      case "purple":
+        return "border-purple-500/25 bg-purple-500/10 text-purple-300";
+      case "indigo":
+        return "border-indigo-500/25 bg-indigo-500/10 text-indigo-300";
+      case "gray":
+        return "border-gray-600/50 bg-gray-900/70 text-gray-400";
+      default:
+        return "border-blue-500/25 bg-blue-500/10 text-blue-300";
+    }
+  };
+
+  const getTimelineActionClasses = (tone: "blue" | "purple" | "indigo" | "gray" = "blue", completed = false) => {
+    if (completed) {
+      switch (tone) {
+        case "purple":
+          return "bg-purple-600 border-purple-600 text-white";
+        case "indigo":
+          return "bg-indigo-600 border-indigo-600 text-white";
+        case "gray":
+          return "bg-gray-600 border-gray-600 text-white";
+        default:
+          return "bg-blue-600 border-blue-600 text-white";
+      }
+    }
+
+    switch (tone) {
+      case "purple":
+        return "border-purple-500/50 bg-black text-purple-300 hover:border-purple-500";
+      case "indigo":
+        return "border-indigo-500/50 bg-black text-indigo-300 hover:border-indigo-500";
+      case "gray":
+        return "border-gray-600/50 bg-black text-gray-300 hover:border-gray-500";
+      default:
+        return "border-blue-500/50 bg-black text-blue-300 hover:border-blue-500";
+    }
+  };
+
+  const renderTimelineCard = (
+    item: any,
+    tone: "blue" | "purple" | "indigo" | "gray",
+    layout: "row" | "stacked" = "row",
+    extraContent?: React.ReactNode,
+  ) => {
+    const surfaceClasses = getTimelineSurfaceClasses(tone);
+    const accentClasses = getTimelineAccentClasses(tone);
+    const chipClasses = getTimelineChipClasses(tone);
+
+    return (
+      <div
+        key={item.id}
+        className={`group relative cursor-pointer overflow-hidden rounded-2xl border p-3 sm:p-4 backdrop-blur-sm transition-all duration-300 ${surfaceClasses} ${item.isCompleted ? 'opacity-60' : ''}`}
+        onClick={() => (bulkMode ? toggleItemSelection(item.id) : startEdit(item))}
+      >
+        <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${item.isCompleted ? 'bg-gray-700' : accentClasses}`} />
+
+        <div className={layout === "stacked" ? "flex flex-col items-start gap-2" : "flex items-center gap-3 min-w-0"}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted });
+            }}
+            className={`shrink-0 self-start rounded-xl border px-2 py-1 transition-all flex items-center justify-center gap-1 ${getTimelineActionClasses(tone, item.isCompleted)}`}
+          >
+            <CheckCircle size={12} className={item.isCompleted ? 'text-white' : tone === 'gray' ? 'text-gray-400' : tone === 'purple' ? 'text-purple-400' : tone === 'indigo' ? 'text-indigo-400' : 'text-blue-400'} />
+            <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
+          </button>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className={`text-sm sm:text-base font-bold leading-snug break-words ${item.isCompleted ? 'line-through text-gray-500' : 'text-gray-100'}`}>
+                {item.title}
+              </h3>
+              {item.repeatInterval !== 'none' && (
+                <span className={`rounded-lg border px-2 py-1 text-[7px] sm:text-[8px] font-black uppercase tracking-[0.18em] shrink-0 ${chipClasses}`}>
+                  {item.repeatInterval}
+                </span>
+              )}
+            </div>
+            {item.type !== 'note' && item.targetDate && (
+              <div className={`mt-1 flex items-center gap-1.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest ${tone === 'gray' ? 'text-gray-500' : 'text-gray-600'}`}>
+                <Clock size={11} /> {new Date(item.targetDate).toLocaleDateString()} at {new Date(item.targetDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={`mt-3 flex items-center gap-2 ${layout === 'stacked' ? 'justify-between' : 'ml-auto'} flex-wrap sm:flex-nowrap`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            {bulkMode && (
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleItemSelection(item.id); }}
+                className={`h-5 w-5 rounded border flex items-center justify-center transition-colors ${selectedIds.includes(item.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600 text-transparent'}`}
+              >
+                ✓
+              </button>
+            )}
+            <span className={`rounded-lg border px-2 py-1 text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] ${getCategoryBadgeClasses(item.category)}`}>
+              {item.category ?? 'Other'}
+            </span>
+            <span className={`rounded-lg border px-2 py-1 text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] ${item.type === 'task' ? 'border-blue-500/20 bg-blue-500/10 text-blue-300' : item.type === 'reminder' ? 'border-purple-500/20 bg-purple-500/10 text-purple-300' : 'border-orange-500/20 bg-orange-500/10 text-orange-300'}`}>
+              {item.type}
+            </span>
+            {item.sticky && item.type !== 'note' && (
+              <span className="rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-2 py-1 text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] text-indigo-300">
+                Priority
+              </span>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ id: item.id }); }}
+              className="cursor-pointer p-1.5 text-gray-600 transition-all hover:cursor-pointer hover:text-red-400 md:opacity-0 md:group-hover:opacity-100"
+            >
+              <Trash2 size={14} className="cursor-pointer" />
+            </button>
+          </div>
+        </div>
+
+        {extraContent}
+      </div>
+    );
+  };
+
   // 1. Hydration Fix: Ensure component is mounted before rendering
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    const syncNoteGridForViewport = () => {
-      const maxAllowed = getMaxNoteColumns(window.innerWidth);
-      setMaxNoteGrid(maxAllowed);
-      setNoteGrid((prev) => (prev > maxAllowed ? maxAllowed : prev));
-    };
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("agenda-timeline-view", timelineView);
+  }, [timelineView]);
 
-    syncNoteGridForViewport();
-    window.addEventListener("resize", syncNoteGridForViewport);
-
-    return () => {
-      window.removeEventListener("resize", syncNoteGridForViewport);
-    };
-  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("agenda-notes-view", notesView);
+  }, [notesView]);
 
   const utils = api.useUtils();
   const { data: items, isLoading } = api.agenda.getAll.useQuery();
-
-  const isCompactTaskView = taskGrid === 3;
 
   const stickyItems = items?.filter(item => item.sticky && item.type !== 'note').sort((a, b) => {
     if (sortBy === 'targetDate') {
@@ -186,12 +330,6 @@ export default function AgendaPage() {
     const validIds = new Set((items ?? []).map((item) => item.id));
     setSelectedIds((prev) => prev.filter((id) => validIds.has(id)));
   }, [items]);
-
-  useEffect(() => {
-    if (activeTasksReminders.length === 1 && taskGrid !== 1) {
-      setTaskGrid(1);
-    }
-  }, [activeTasksReminders.length, taskGrid]);
 
   useEffect(() => {
     if (!editTargetId || !items?.length) return;
@@ -381,25 +519,15 @@ export default function AgendaPage() {
   if (!mounted) return null;
 
   return (
-    <main className="min-h-screen bg-black text-white p-3 sm:p-6 md:p-12 lg:p-20">
-      {/* NEXUS HEADER */}
-      <header className="max-w-4xl mx-auto flex flex-col gap-2 sm:gap-3 sm:flex-row sm:justify-between sm:items-center mb-6 sm:mb-16">
-        <div className="text-right">
-          <p className="text-[9px] sm:text-[10px] text-blue-500 uppercase tracking-[0.4em] font-black mb-1">Active Timeline</p>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tighter">AGENDA</h1>
-        </div>
-        <div className="text-right">
-          <RealTimeHeader />
-        </div>
-      </header>
-
+    <main className="theme-invert-on-light min-h-0 bg-black text-white p-3 sm:p-6 md:p-12 lg:p-20">
       <div className="w-full max-w-6xl mx-auto">
         {/* ADD ACTION BAR */}
-        <div className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:justify-between sm:items-end mb-4 sm:mb-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end mb-4 sm:mb-8">
           <div>
-            <h2 className="text-base sm:text-xl font-bold text-gray-400">{editingId ? "Edit Sequence" : activeStickyItems.length > 0 ? "Normal Priority" : "Upcoming Events"}</h2>
-            <p className="text-[9px] sm:text-xs text-gray-600 uppercase tracking-widest mt-1">
-              {isLoading ? "Syncing..." : `${activeSequenceCount} sequences active`}
+            <p className="text-[9px] sm:text-[10px] text-blue-500 uppercase tracking-[0.4em] font-black mb-1">Timeline</p>
+            {/* <h2 className="text-base sm:text-xl font-black text-gray-100">{editingId ? "Edit" : "Timeline"}</h2> */}
+            <p className="mt-1 text-sm font-black text-gray-400">
+              {isLoading ? "Syncing..." : `${activeSequenceCount} active · ${expiredItems.length} archived`}
             </p>
           </div>
           <button 
@@ -559,95 +687,110 @@ export default function AgendaPage() {
           </div>
         )}
 
-        {/* SORT OPTIONS */}
-        <div className="flex flex-col gap-2 sm:gap-4 mb-4 sm:mb-8">
-          <div className="flex flex-wrap justify-center items-center gap-2 sm:gap-3">
+        {/* CONTROL BAR */}
+        <div className="mb-4 sm:mb-8 rounded-[2rem] border border-gray-800/80 bg-gray-950/60 p-3 sm:p-4 backdrop-blur-xl">
+          <div className="flex flex-col gap-2 sm:gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={() => setSearchOpen((prev) => !prev)}
-              className={`px-3 py-1.5 sm:px-6 sm:py-2 rounded-xl text-[9px] sm:text-xs font-black uppercase tracking-widest transition-all ${searchOpen ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+                className={`px-3 py-2 rounded-xl text-[9px] sm:text-xs font-black cursor-pointer uppercase tracking-widest transition-all ${searchOpen ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}
             >
               {searchOpen ? 'Hide Search' : 'Search'}
             </button>
-            <div className="flex items-center gap-3 bg-gray-900/50 border border-gray-800 rounded-xl px-3 py-2">
-              <label className="text-[9px] sm:text-xs font-black uppercase tracking-widest text-gray-500">Sort</label>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as 'targetDate' | 'createdAt')}
-                className="bg-transparent text-[10px] sm:text-xs font-black uppercase tracking-widest text-gray-200 outline-none cursor-pointer"
-              >
-                <option value="targetDate">By Date</option>
-                <option value="createdAt">By Added</option>
-              </select>
-            </div>
             <button
               onClick={() => setBulkMode((prev) => !prev)}
-              className={`px-3 py-1.5 sm:px-6 sm:py-2 rounded-xl text-[9px] sm:text-xs font-black uppercase tracking-widest transition-all ${bulkMode ? 'bg-red-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+              className={`px-3 py-2 rounded-xl text-[9px] sm:text-xs font-black cursor-pointer uppercase tracking-widest transition-all ${bulkMode ? 'bg-red-600 text-white shadow-lg shadow-red-900/20' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}
             >
               {bulkMode ? 'Exit Bulk' : 'Bulk Select'}
             </button>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'targetDate' | 'createdAt')}
+              className="cursor-pointer rounded-xl border border-gray-800 bg-black/40 px-2 py-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-gray-200 outline-none"
+            >
+              <option value="targetDate">Due Date</option>
+              <option value="createdAt">Date Added</option>
+            </select>
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-3 md:ml-auto shrink-0 whitespace-nowrap">
+              <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-[0.3em] text-gray-600">View</span>
+              <button
+                onClick={() => setTimelineView("list")}
+                className={`rounded-lg px-3 py-1.5 text-[10px] sm:text-xs font-black cursor-pointer uppercase tracking-[0.2em] transition-all ${timelineView === "list" ? "bg-blue-600 text-white" : "bg-gray-900 text-gray-400 hover:bg-gray-800"}`}
+              >
+                List
+              </button>
+              <button
+                onClick={() => setTimelineView("grid")}
+                className={`rounded-lg px-3 py-1.5 text-[10px] sm:text-xs font-black cursor-pointer uppercase tracking-[0.2em] transition-all ${timelineView === "grid" ? "bg-blue-600 text-white" : "bg-gray-900 text-gray-400 hover:bg-gray-800"}`}
+              >
+                Grid
+              </button>
+            </div>
           </div>
 
           {searchOpen && (
-          <div className="bg-gray-900/40 border border-gray-800 rounded-2xl p-3 sm:p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
-              <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-gray-500">Search Filters</p>
-              <div className="flex items-center gap-2">
-                {hasActiveFilters && (
-                  <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-gray-600">{filteredResultCount} matches</p>
-                )}
-                <button
-                  onClick={() => {
-                    setSearchTitle("");
-                    setSearchContent("");
-                    setSearchCategory("all");
-                    setSearchType("all");
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest bg-black/60 border border-gray-700 text-gray-300 hover:border-gray-500"
+            <div className="mt-3 rounded-2xl border border-gray-800 bg-gray-950/70 p-3 sm:p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-gray-500">Search Filters</p>
+                <div className="flex items-center gap-2">
+                  {hasActiveFilters && (
+                    <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-gray-600">{filteredResultCount} matches</p>
+                  )}
+                  <button
+                    onClick={() => {
+                      setSearchTitle("");
+                      setSearchContent("");
+                      setSearchCategory("all");
+                      setSearchType("all");
+                    }}
+                    className="rounded-lg border border-gray-700 bg-black/60 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-gray-300 hover:border-gray-500"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <input
+                  value={searchTitle}
+                  onChange={(e) => setSearchTitle(e.target.value)}
+                  placeholder="Title"
+                  className="rounded-xl border border-gray-800 bg-black/60 p-2.5 text-xs font-bold text-gray-200 placeholder:text-gray-600 outline-none"
+                />
+                <input
+                  value={searchContent}
+                  onChange={(e) => setSearchContent(e.target.value)}
+                  placeholder="Content"
+                  className="rounded-xl border border-gray-800 bg-black/60 p-2.5 text-xs font-bold text-gray-200 placeholder:text-gray-600 outline-none"
+                />
+                <select
+                  value={searchCategory}
+                  onChange={(e) => setSearchCategory(e.target.value)}
+                  className="rounded-xl border border-gray-800 bg-black/60 p-2.5 text-xs font-black uppercase tracking-widest text-gray-200 outline-none"
                 >
-                  Clear
-                </button>
+                  <option value="all">All Categories</option>
+                  {categoryOptions.map((option) => (
+                    <option key={option} value={option.toLowerCase()}>{option}</option>
+                  ))}
+                </select>
+                <select
+                  value={searchType}
+                  onChange={(e) => setSearchType(e.target.value)}
+                  className="rounded-xl border border-gray-800 bg-black/60 p-2.5 text-xs font-black uppercase tracking-widest text-gray-200 outline-none"
+                >
+                  <option value="all">All Types</option>
+                  <option value="task">Task</option>
+                  <option value="reminder">Reminder</option>
+                  <option value="note">Note</option>
+                </select>
               </div>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              <input
-                value={searchTitle}
-                onChange={(e) => setSearchTitle(e.target.value)}
-                placeholder="Title"
-                className="bg-black/60 border border-gray-800 p-2.5 rounded-xl text-xs sm:text-sm font-bold text-gray-200 placeholder:text-gray-600 outline-none"
-              />
-              <input
-                value={searchContent}
-                onChange={(e) => setSearchContent(e.target.value)}
-                placeholder="Content"
-                className="bg-black/60 border border-gray-800 p-2.5 rounded-xl text-xs sm:text-sm font-bold text-gray-200 placeholder:text-gray-600 outline-none"
-              />
-              <select
-                value={searchCategory}
-                onChange={(e) => setSearchCategory(e.target.value)}
-                className="bg-black/60 border border-gray-800 p-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-gray-200 outline-none"
-              >
-                <option value="all">All Categories</option>
-                {categoryOptions.map((option) => (
-                  <option key={option} value={option.toLowerCase()}>{option}</option>
-                ))}
-              </select>
-              <select
-                value={searchType}
-                onChange={(e) => setSearchType(e.target.value)}
-                className="bg-black/60 border border-gray-800 p-2.5 rounded-xl text-xs sm:text-sm font-black uppercase tracking-widest text-gray-200 outline-none"
-              >
-                <option value="all">All Types</option>
-                <option value="task">Task</option>
-                <option value="reminder">Reminder</option>
-                <option value="note">Note</option>
-              </select>
-            </div>
-          </div>
           )}
 
           {bulkMode && (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-3 sm:p-4 flex flex-col gap-3">
+            <div className="rounded-2xl border border-gray-800 bg-gray-950/70 p-3 sm:p-4 flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.25em] text-gray-400">
                   {selectedIds.length} selected
@@ -717,73 +860,22 @@ export default function AgendaPage() {
         {/* STICKY SECTION */}
         {activeStickyItems.length > 0 && (
           <div className="mb-8 sm:mb-12">
-            <div className="mb-4 sm:mb-6">
-              <p className="text-[9px] sm:text-[10px] text-indigo-500 uppercase tracking-[0.4em] font-black mb-1">Priority Items</p>
-              <h2 className="text-lg sm:text-xl font-black text-gray-100">High Priority</h2>
+            <div className="mb-4 sm:mb-6 flex items-end justify-between gap-4">
+              <p className="text-[9px] sm:text-[10px] text-indigo-400 uppercase tracking-[0.35em] font-black mb-1">Priority</p>
+              <button
+                type="button"
+                aria-expanded={pinnedExpanded}
+                onClick={() => setPinnedExpanded((v) => !v)}
+                className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.25em] text-indigo-300 transition-all hover:border-indigo-400/40 cursor-pointer"
+              >
+                {activeStickyItems.length} items {pinnedExpanded ? "−" : "+"}
+              </button>
             </div>
-            {groupedSticky.map(([label, group]) => (
+            {pinnedExpanded && groupedSticky.map(([label, group]) => (
               <div key={label} className="mb-6">
-                <h3 className="text-sm text-gray-400 font-black mb-3">{label}</h3>
-                <div className="grid gap-2 sm:gap-3">
-                  {group.map(item => (
-                    <div
-                      key={item.id}
-                      className={`group relative p-3 sm:p-4 bg-gradient-to-r from-indigo-950/20 to-transparent backdrop-blur-sm hover:from-indigo-950/40 rounded-xl border border-indigo-500/20 transition-all duration-300 hover:border-indigo-500/40 cursor-pointer overflow-hidden flex items-center justify-between ${item.isCompleted ? 'opacity-60' : ''}`}
-                      onClick={() => bulkMode ? toggleItemSelection(item.id) : startEdit(item)}
-                    >
-                      {/* Left accent */}
-                      <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${item.isCompleted ? 'bg-gray-700' : 'bg-indigo-500'}`} />
-
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted }); }}
-                          className={`rounded-lg border transition-all flex items-center justify-center gap-1 px-2 py-1 shrink-0
-                            ${item.isCompleted ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-indigo-500/50 bg-black hover:border-indigo-500 text-indigo-300'}`}
-                        >
-                          <CheckCircle size={12} className={item.isCompleted ? 'text-white' : 'text-indigo-400'} />
-                          <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          <h3 className={`text-sm sm:text-base font-bold truncate ${item.isCompleted ? 'line-through text-gray-600' : 'text-gray-100'}`}>
-                            {item.title}
-                          </h3>
-                          {item.type !== 'note' && item.targetDate && (
-                            <div className={`flex items-center gap-1.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-gray-700 mt-1`}>
-                              <Clock size={11} /> {new Date(item.targetDate).toLocaleDateString()} at {new Date(item.targetDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                          )}
-                        </div>
-                        {item.repeatInterval !== 'none' && (
-                          <span className="p-1 bg-indigo-500/20 rounded text-indigo-400 text-[7px] font-black uppercase tracking-[0.1em] shrink-0">
-                            {item.repeatInterval}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 ml-2 shrink-0">
-                        {bulkMode && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleItemSelection(item.id); }}
-                            className={`w-5 h-5 rounded border flex items-center justify-center ${selectedIds.includes(item.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600 text-transparent'}`}
-                          >
-                            ✓
-                          </button>
-                        )}
-                        <span className={`text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border ${getCategoryBadgeClasses(item.category)}`}>
-                          {item.category ?? 'Other'}
-                        </span>
-                        <span className={`text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border ${item.type === 'task' ? 'border-blue-900/30 bg-blue-900/10 text-blue-500' : 'border-purple-900/30 bg-purple-900/10 text-purple-500'}`}>
-                          {item.type}
-                        </span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ id: item.id }); }}
-                          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-gray-600 hover:text-red-500 transition-all p-1"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                <h3 className="mb-3 text-sm font-black text-gray-400">{label}</h3>
+                <div className={`grid gap-2 sm:gap-3 ${timelineView === "list" ? "grid-cols-1" : "grid-cols-2 xl:grid-cols-3"}`}>
+                  {group.map((item) => renderTimelineCard(item, 'indigo', timelineView === "grid" ? 'stacked' : 'row'))}
                 </div>
               </div>
             ))}
@@ -802,218 +894,24 @@ export default function AgendaPage() {
           </div>
         ) : (
           <>
-            {/* View controls for other sequences */}
-            <div className="flex flex-wrap justify-center lg:justify-between items-center gap-2 rounded-2xl border border-gray-800 bg-gray-950/70 p-2 sm:p-3 mb-6">
-              <h2 className="text-sm sm:text-base font-black text-gray-200 uppercase tracking-[0.18em] px-1">
-                Normal Priority
-              </h2>
-              {/* <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
-                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-[0.3em] text-gray-600 mr-1">View</span>
-                {[{value: 1, label: 'I'}, {value: 2, label: 'II'}, {value: 3, label: 'III'}, {value: 4, label: 'IV'}].map(option => {
-                  const isHidden = option.value >= 3;
-                  return (
-                    <button
-                      key={option.value}
-                      onClick={() => setTaskGrid(option.value as 1 | 2 | 3 | 4)}
-                      className={`flex aspect-square h-7 w-7 sm:h-10 sm:w-10 items-center justify-center rounded-xl transition-all ${taskGrid === option.value ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'bg-black/40 text-gray-400 hover:bg-gray-800 hover:text-white'} ${isHidden ? 'hidden lg:flex' : 'flex'}`}
-                    >
-                      <div className={`grid h-4 w-4 sm:h-5 sm:w-5 gap-0.5 ${option.value === 1 ? 'grid-cols-1' : option.value === 2 ? 'grid-cols-2' : option.value === 3 ? 'grid-cols-3' : 'grid-cols-4'}`}>
-                        {Array.from({ length: option.value }, (_, index) => (
-                          <span
-                            key={index}
-                            className={`rounded-[2px] border ${taskGrid === option.value ? 'border-white bg-white/25' : 'border-gray-400/80 bg-transparent'}`}
-                          />
-                        ))}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div> */}
-              <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
-                <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-[0.3em] text-gray-700 mr-2 mix-blend-plus-lighting">View</span>
-                {[1, 2, 3, 4].map(value => {
-                  const isHidden = value >= 3;
-                  const isActive = taskGrid === value;
-
-                  const continuousLine = {
-                    1: <path d="M10 2v16M5 2h10M5 18h10" strokeWidth={isActive ? "2.8" : "1.6"} strokeLinecap="round" strokeLinejoin="round" />,
-                    2: <path d="M6 3v14M14 3v14M3 3h6M11 3h6M3 17h6M11 17h6" strokeWidth={isActive ? "2.4" : "1.4"} strokeLinecap="round" strokeLinejoin="round" />,
-                    3: <path d="M4 3v14M10 3v14M16 3v14M2 3h4M8 3h4M14 3h4M2 17h4M8 17h4M14 17h4" strokeWidth={isActive ? "2.0" : "1.2"} strokeLinecap="round" strokeLinejoin="round" />,
-                    4: <path d="M5 3v14 M3 3h4 M3 17h4 M9 3l4 14 4-14 M9 3h3 M14 3h3" strokeWidth={isActive ? "2.0" : "1.2"} strokeLinecap="round" strokeLinejoin="round" />
-                  }[value as 1 | 2 | 3 | 4];
-
-                  return (
-                    <button
-                      key={value}
-                      onClick={() => setTaskGrid(value as 1 | 2 | 3 | 4)}
-                      style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
-                      className={`group relative flex aspect-square h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl border transition-all duration-300 active:scale-95 ${
-                        isActive
-                          ? 'border-t-pink-500 border-r-purple-500 border-b-cyan-500 border-l-blue-500 text-white scale-105 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                          : 'border-gray-800 bg-gray-950/20 text-gray-600 hover:text-gray-300 hover:border-gray-600 hover:bg-gray-900/30'
-                      } ${isHidden ? 'hidden lg:flex' : 'flex'}`}
-                    >
-                      {/* Layer 1: Symmetrical Under-Glow Aura */}
-                      <div
-                        style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
-                        className={`absolute -inset-[1px] -z-10 rounded-xl opacity-0 blur-md transition-all duration-500 group-hover:opacity-40 ${
-                          isActive ? 'opacity-100 bg-gradient-to-tr from-cyan-500 via-purple-500 to-pink-500' : 'bg-white/5'
-                        }`}
-                      />
-
-                      {/* Layer 2: Inner Liquid Velvet Canvas */}
-                      <div
-                        style={{ transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)' }}
-                        className={`absolute inset-[1px] -z-10 rounded-xl transition-all duration-300 ${
-                          isActive
-                            ? 'bg-gradient-to-br from-purple-950/50 via-black to-cyan-950/50'
-                            : 'bg-black/40 group-hover:bg-gray-900/60'
-                        }`}
-                      />
-
-                      {/* Glowing Filaments */}
-                      <svg
-                        viewBox="0 0 20 20"
-                        style={{
-                          transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
-                          filter: isActive ? 'drop-shadow(0 0 3px currentColor)' : 'none'
-                        }}
-                        className={`relative z-10 w-4 h-4 fill-none stroke-current transition-all duration-300 ${
-                          isActive ? 'text-cyan-300' : 'group-hover:text-pink-400'
-                        }`}
-                      >
-                        {continuousLine}
-                      </svg>
-                    </button>
-                  );
-                })}
-              </div>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <p className="text-[9px] sm:text-[10px] text-blue-400 uppercase tracking-[0.35em] font-black">Non-Priority</p>
+              <button
+                type="button"
+                aria-expanded={upcomingExpanded}
+                onClick={() => setUpcomingExpanded((v) => !v)}
+                className="rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.25em] text-blue-300 transition-all hover:border-blue-400/40 cursor-pointer"
+              >
+                {activeTasksReminders.length} items {upcomingExpanded ? "−" : "+"}
+              </button>
             </div>
 
             {/* Render grouped tasks by due date */}
-            {groupedTasks.map(([label, group]) => (
+            {upcomingExpanded && groupedTasks.map(([label, group]) => (
               <div key={label} className="mb-8">
-                <h3 className="text-sm text-gray-400 font-black mb-3">{label}</h3>
-                <div className={`grid gap-2 sm:gap-3 ${taskGrid === 1 ? 'grid-cols-1' : taskGrid === 2 ? 'grid-cols-1 sm:grid-cols-2' : taskGrid === 3 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'}`}>
-                  {group.map(item => (
-                    taskGrid === 1 ? (
-                      <div
-                        key={item.id}
-                        className={`group relative p-3 sm:p-4 bg-gradient-to-r ${item.type === 'reminder' ? 'from-purple-950/20 to-transparent' : 'from-blue-950/20 to-transparent'} backdrop-blur-sm hover:${item.type === 'reminder' ? 'from-purple-950/40' : 'from-blue-950/40'} rounded-xl border ${item.type === 'reminder' ? 'border-purple-500/20 hover:border-purple-500/40' : 'border-blue-500/20 hover:border-blue-500/40'} transition-all duration-300 cursor-pointer overflow-hidden flex items-center justify-between ${item.isCompleted ? 'opacity-60' : ''}`}
-                        onClick={() => bulkMode ? toggleItemSelection(item.id) : startEdit(item)}
-                      >
-                        <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${item.isCompleted ? 'bg-gray-700' : item.type === 'reminder' ? 'bg-purple-500' : 'bg-blue-500'}`} />
-
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted }); }}
-                            className={`rounded-lg border transition-all flex items-center justify-center gap-1 px-2 py-1 shrink-0 ${item.isCompleted ? (item.type === 'reminder' ? 'bg-purple-600 border-purple-600 text-white' : 'bg-blue-600 border-blue-600 text-white') : (item.type === 'reminder' ? 'border-purple-500/50 bg-black hover:border-purple-500 text-purple-300' : 'border-blue-500/50 bg-black hover:border-blue-500 text-blue-300')}`}
-                          >
-                            <CheckCircle size={12} className={item.isCompleted ? 'text-white' : item.type === 'reminder' ? 'text-purple-400' : 'text-blue-400'} />
-                            <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <h3 className={`text-sm sm:text-base font-bold truncate ${item.isCompleted ? 'line-through text-gray-600' : 'text-gray-100'}`}>
-                              {item.title}
-                            </h3>
-                            {item.type !== 'note' && item.targetDate && (
-                              <div className="flex items-center gap-1.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-gray-700 mt-1">
-                                <Clock size={11} /> {new Date(item.targetDate).toLocaleDateString()} at {new Date(item.targetDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </div>
-                            )}
-                          </div>
-                          {item.repeatInterval !== 'none' && (
-                            <span className={`p-1 rounded text-[7px] font-black uppercase tracking-[0.1em] shrink-0 ${item.type === 'reminder' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                              {item.repeatInterval}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 ml-2 shrink-0">
-                          {bulkMode && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleItemSelection(item.id); }}
-                              className={`w-5 h-5 rounded border flex items-center justify-center ${selectedIds.includes(item.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600 text-transparent'}`}
-                            >
-                              ✓
-                            </button>
-                          )}
-                          <span className={`text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border ${getCategoryBadgeClasses(item.category)}`}>
-                            {item.category ?? 'Other'}
-                          </span>
-                          <span className={`text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border ${item.type === 'task' ? 'border-blue-900/30 bg-blue-900/10 text-blue-500' : item.type === 'reminder' ? 'border-purple-900/30 bg-purple-900/10 text-purple-500' : 'border-orange-900/30 bg-orange-900/10 text-orange-500'}`}>
-                            {item.type}
-                          </span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ id: item.id }); }}
-                            className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-gray-600 hover:text-red-500 transition-all p-1"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        key={item.id}
-                        className={`group relative min-h-[112px] sm:min-h-[128px] p-3 sm:p-4 bg-gradient-to-r ${item.type === 'reminder' ? 'from-purple-950/20 to-transparent' : 'from-blue-950/20 to-transparent'} backdrop-blur-sm hover:${item.type === 'reminder' ? 'from-purple-950/40' : 'from-blue-950/40'} rounded-xl border ${item.type === 'reminder' ? 'border-purple-500/20 hover:border-purple-500/40' : 'border-blue-500/20 hover:border-blue-500/40'} transition-all duration-300 cursor-pointer overflow-hidden flex flex-col gap-2 ${item.isCompleted ? 'opacity-60' : ''}`}
-                        onClick={() => bulkMode ? toggleItemSelection(item.id) : startEdit(item)}
-                      >
-                        <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${item.isCompleted ? 'bg-gray-700' : item.type === 'reminder' ? 'bg-purple-500' : 'bg-blue-500'}`} />
-
-                        <div className="flex items-start gap-3 min-w-0 flex-1">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted }); }}
-                            className={`rounded-lg border transition-all flex items-center justify-center gap-1 px-2 py-1 shrink-0 ${item.isCompleted ? (item.type === 'reminder' ? 'bg-purple-600 border-purple-600 text-white' : 'bg-blue-600 border-blue-600 text-white') : (item.type === 'reminder' ? 'border-purple-500/50 bg-black hover:border-purple-500 text-purple-300' : 'border-blue-500/50 bg-black hover:border-blue-500 text-blue-300')}`}
-                          >
-                            <CheckCircle size={12} className={item.isCompleted ? 'text-white' : item.type === 'reminder' ? 'text-purple-400' : 'text-blue-400'} />
-                            <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
-                          </button>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <h3 className={`text-sm sm:text-base font-bold leading-snug break-words ${item.isCompleted ? 'line-through text-gray-600' : 'text-gray-100'}`}>
-                                {item.title}
-                              </h3>
-                              {item.repeatInterval !== 'none' && (
-                                <span className={`p-1 rounded text-[7px] font-black uppercase tracking-[0.1em] shrink-0 ${item.type === 'reminder' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                  {item.repeatInterval}
-                                </span>
-                              )}
-                            </div>
-                            {item.type !== 'note' && item.targetDate && (
-                              <div className="flex items-center gap-1.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-gray-700 mt-1">
-                                <Clock size={11} /> {new Date(item.targetDate).toLocaleDateString()} at {new Date(item.targetDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-2 mt-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {bulkMode && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); toggleItemSelection(item.id); }}
-                                className={`w-5 h-5 rounded border flex items-center justify-center ${selectedIds.includes(item.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600 text-transparent'}`}
-                              >
-                                ✓
-                              </button>
-                            )}
-                            <span className={`text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border ${getCategoryBadgeClasses(item.category)}`}>
-                              {item.category ?? 'Other'}
-                            </span>
-                            <span className={`text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border ${item.type === 'task' ? 'border-blue-900/30 bg-blue-900/10 text-blue-500' : item.type === 'reminder' ? 'border-purple-900/30 bg-purple-900/10 text-purple-500' : 'border-orange-900/30 bg-orange-900/10 text-orange-500'}`}>
-                              {item.type}
-                            </span>
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ id: item.id }); }}
-                            className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-gray-600 hover:text-red-500 transition-all p-1"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  ))}
+                <h3 className="mb-3 text-sm font-black text-gray-400">{label}</h3>
+                <div className={`grid gap-2 sm:gap-3 ${timelineView === "list" ? "grid-cols-1" : "grid-cols-2 xl:grid-cols-3"}`}>
+                  {group.map((item) => renderTimelineCard(item, item.type === 'reminder' ? 'purple' : 'blue', timelineView === "grid" ? 'stacked' : 'row'))}
                 </div>
               </div>
             ))}
@@ -1023,68 +921,23 @@ export default function AgendaPage() {
         {/* EXPIRED SECTION */}
         {expiredItems.length > 0 && (
           <div className="mt-12 sm:mt-16">
-            <div className="mb-4 sm:mb-6">
-              <p className="text-[9px] sm:text-[10px] text-red-500 uppercase tracking-[0.4em] font-black mb-1">Timeline Overflow</p>
-              <h2 className="text-lg sm:text-xl font-black text-gray-200">Expired</h2>
+            <div className="mb-4 sm:mb-6 flex items-end justify-between gap-4">
+              <p className="text-[9px] sm:text-[10px] text-red-400 uppercase tracking-[0.35em] font-black mb-1">Past due</p>
+              <button
+                type="button"
+                aria-expanded={pastDueExpanded}
+                onClick={() => setPastDueExpanded((v) => !v)}
+                className="rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.25em] text-red-300 transition-all hover:border-red-400/40 cursor-pointer"
+              >
+                {expiredItems.length} items {pastDueExpanded ? "−" : "+"}
+              </button>
             </div>
 
-            <div className="grid gap-2 sm:gap-3">
-              {expiredItems.map((item) => (
-                <div
-                  key={`expired-${item.id}`}
-                  className="group relative p-3 sm:p-4 bg-gradient-to-r from-gray-900/40 to-transparent backdrop-blur-sm rounded-xl border border-gray-700/40 cursor-pointer overflow-hidden flex items-center justify-between opacity-60 hover:opacity-80 transition-all duration-300"
-                  onClick={() => bulkMode ? toggleItemSelection(item.id) : startEdit(item)}
-                >
-                  <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gray-600" />
-
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted }); }}
-                      className={`rounded-lg border transition-all flex items-center justify-center gap-1 px-2 py-1 shrink-0 ${item.isCompleted ? 'bg-gray-600 border-gray-600 text-white' : 'border-gray-600/50 bg-black hover:border-gray-500 text-gray-300'}`}
-                    >
-                      <CheckCircle size={12} className={item.isCompleted ? 'text-white' : 'text-gray-400'} />
-                      <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <h3 className={`text-sm sm:text-base font-bold truncate ${item.isCompleted ? 'line-through text-gray-600' : 'text-gray-300'}`}>
-                        {item.title}
-                      </h3>
-                      <div className="flex items-center gap-1.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-gray-600 mt-1">
-                        <Clock size={11} /> {new Date(item.targetDate).toLocaleDateString()} at {new Date(item.targetDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 ml-2 shrink-0">
-                    {bulkMode && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleItemSelection(item.id); }}
-                        className={`w-5 h-5 rounded border flex items-center justify-center ${selectedIds.includes(item.id) ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-600 text-transparent'}`}
-                      >
-                        ✓
-                      </button>
-                    )}
-                    <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border border-red-700/40 bg-red-900/20 text-red-300">
-                      Expired
-                    </span>
-                    {item.sticky && (
-                      <span className="text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border border-indigo-700/30 bg-indigo-900/20 text-indigo-300">
-                        Priority
-                      </span>
-                    )}
-                    <span className={`text-[7px] sm:text-[8px] font-black uppercase tracking-[0.2em] px-2 py-1 rounded-lg border ${getCategoryBadgeClasses(item.category)}`}>
-                      {item.category ?? 'Other'}
-                    </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ id: item.id }); }}
-                      className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-all p-1"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            {pastDueExpanded && (
+              <div className={`grid gap-2 sm:gap-3 ${timelineView === "list" ? "grid-cols-1" : "grid-cols-2 xl:grid-cols-3"}`}>
+                {expiredItems.map((item) => renderTimelineCard(item, 'gray', timelineView === "grid" ? 'stacked' : 'row'))}
+              </div>
+            )}
           </div>
         )}
 
@@ -1093,39 +946,46 @@ export default function AgendaPage() {
           <div className="mt-16">
             <div className="flex justify-between items-center mb-8">
               <h2 className="text-xl font-bold text-gray-400">Notes Archive</h2>
-              <div className="flex gap-2">
-                {[1, 2, 3].filter((cols) => cols <= maxNoteGrid).map(cols => (
-                  <button 
-                    key={cols}
-                    onClick={() => setNoteGrid(cols as 1 | 2 | 3)}
-                    className={`px-3 py-1 rounded text-xs font-black uppercase tracking-widest transition-all ${noteGrid === cols ? 'bg-orange-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
-                  >
-                    {cols} Col
-                  </button>
-                ))}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setNotesView("list")}
+                  className={`rounded-lg px-3 py-1.5 text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] transition-all ${notesView === "list" ? "bg-orange-600 text-white" : "bg-gray-900 text-gray-400 hover:bg-gray-800"}`}
+                >
+                  List
+                </button>
+                <button
+                  onClick={() => setNotesView("grid")}
+                  className={`rounded-lg px-3 py-1.5 text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] transition-all ${notesView === "grid" ? "bg-orange-600 text-white" : "bg-gray-900 text-gray-400 hover:bg-gray-800"}`}
+                >
+                  Grid
+                </button>
               </div>
             </div>
-            <div className={`grid gap-4 sm:gap-6 ${noteGrid === 1 ? 'grid-cols-1' : noteGrid === 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'}`}>
+            <div className={`grid gap-4 sm:gap-6 ${notesView === "list" ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3"}`}>
               {filteredNotes.map(note => (
                 <div 
                   key={note.id}
-                  className="group relative p-4 sm:p-6 bg-gray-900/30 backdrop-blur-xl hover:bg-gray-900/50 rounded-[2.5rem] border border-gray-800/50 transition-all duration-300 hover:border-orange-500/30"
+                  className="group relative rounded-2xl border border-orange-500/15 bg-gray-900/35 p-4 shadow-[0_14px_32px_-20px_rgba(249,115,22,0.45)] backdrop-blur-xl transition-all duration-300 hover:border-orange-500/35 hover:bg-gray-900/55 hover:shadow-[0_18px_40px_-20px_rgba(249,115,22,0.58)] sm:p-6"
                 >
                   {note.pinned && (
                     <div className="absolute top-3 sm:top-4 right-3 sm:right-4">
                       <Pin size={16} className="text-orange-500" />
                     </div>
                   )}
-                  <div onClick={() => bulkMode ? toggleItemSelection(note.id) : startEdit(note)} className="cursor-pointer pr-10 pb-2">
+                  <div onClick={() => bulkMode ? toggleItemSelection(note.id) : startEdit(note)} className="cursor-pointer pb-2">
                     <h3 className="text-base sm:text-lg font-bold text-gray-100 mb-2 line-clamp-2">{note.title}</h3>
                     {note.content && (
                       <p className="text-sm text-gray-500 mb-3 sm:mb-4 line-clamp-3">{note.content}</p>
                     )}
-                    <div className="flex items-center justify-between gap-2 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-gray-700">
-                      <span>
+                    <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-gray-700">
+                      <p>
                         Created {new Date(note.createdAt).toLocaleDateString()} at {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <div className="flex items-center gap-2">
+                      </p>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`px-2 py-1 rounded-lg border ${getCategoryBadgeClasses(note.category)}`}>
+                            {note.category ?? 'Other'}
+                          </span>
                         {bulkMode && (
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleItemSelection(note.id); }}
@@ -1134,18 +994,16 @@ export default function AgendaPage() {
                             ✓
                           </button>
                         )}
-                        <span className={`px-2 py-1 rounded-lg border ${getCategoryBadgeClasses(note.category)}`}>
-                          {note.category ?? 'Other'}
-                        </span>
+                        </div>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ id: note.id }); }}
+                          className="cursor-pointer p-2 text-gray-700 transition-all hover:cursor-pointer hover:text-red-500 md:opacity-0 md:group-hover:opacity-100"
+                        >
+                          <Trash2 size={20} className="cursor-pointer" />
+                        </button>
                       </div>
                     </div>
                   </div>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); deleteMutation.mutate({ id: note.id }); }}
-                    className={`absolute right-3 sm:right-4 ${note.pinned ? 'top-10 sm:top-11' : 'top-3 sm:top-4'} opacity-100 md:opacity-0 md:group-hover:opacity-100 p-2 text-gray-700 hover:text-red-500 transition-all`}
-                  >
-                    <Trash2 size={20} />
-                  </button>
                 </div>
               ))}
             </div>

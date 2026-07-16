@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "~/server/better-auth";
 import { headers } from "next/headers";
 import AuthChecker from "~/components/auth/AuthChecker";
+import AppHeader from "~/components/ui/app-header";
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
      const session = await auth.api.getSession({
       headers: await headers(),
@@ -13,14 +13,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
     }
   
   return (
-    <div className="min-h-screen bg-black text-white p-6">
+    <div className="min-h-screen bg-background text-foreground transition-colors">
       <AuthChecker />
-      <nav className="mb-8 flex items-center gap-4">
-        <Link href="/" className="text-sm bg-gray-800 px-4 py-2 rounded-lg hover:bg-gray-700 transition">
-          ← Back to Dashboard
-        </Link>
-      </nav>
-      {children}
+      <AppHeader>{children}</AppHeader>
     </div>
   );
 }

@@ -127,3 +127,15 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  /* Keep existing dark-designed pages readable in default light mode. */
+  html:not(.dark) .theme-invert-on-light {
+    filter: invert(1) hue-rotate(180deg);
+  }
+
+  /* Keep existing light-designed pages readable in dark mode. */
+  html.dark .theme-invert-on-dark {
+    filter: invert(1) hue-rotate(180deg);
+  }
+}

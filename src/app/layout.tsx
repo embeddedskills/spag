@@ -38,11 +38,23 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${geist.variable} bg-black`}>
+    <html lang="en" className={geist.variable}>
       <head>
         <link rel="manifest" href="/manifest.json" crossOrigin="use-credentials" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(() => {
+  try {
+    const mode = localStorage.getItem('theme-mode');
+    document.documentElement.classList.toggle('dark', mode === 'dark');
+  } catch (_) {
+    document.documentElement.classList.remove('dark');
+  }
+})();`,
+          }}
+        />
       </head>
-      <body className="antialiased bg-black min-h-screen text-white">
+      <body className="antialiased min-h-screen bg-background text-foreground">
         <PWARegister />
         <TRPCReactProvider>
           {children}

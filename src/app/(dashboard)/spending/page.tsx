@@ -33,18 +33,10 @@ export default function SpendingPage() {
   if (!mounted) return null;
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-12 lg:p-20 relative overflow-hidden">
+    <main className="theme-invert-on-dark min-h-0 bg-slate-50 text-slate-900 p-6 md:p-12 lg:p-20 relative overflow-hidden">
       {/* BACKGROUND ACCENTS */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-blue-400/10 rounded-full blur-[120px] -z-10" />
       <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-400/10 rounded-full blur-[120px] -z-10" />
-
-      {/* LIGHT NEXUS HEADER */}
-      <header className="max-w-4xl mx-auto flex justify-between items-center mb-16">
-        <div className="text-right">
-          <p className="text-[10px] text-blue-500 uppercase tracking-[0.4em] font-black mb-1">Financial Stream</p>
-          <h1 className="text-3xl font-black tracking-tighter text-slate-800 uppercase">Ledger</h1>
-        </div>
-      </header>
 
       <div className="max-w-4xl mx-auto">
         {/* STATS GRID */}
