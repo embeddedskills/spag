@@ -1,6 +1,7 @@
 import "~/styles/globals.css";
 
 import { type Metadata, type Viewport } from "next";
+import { cookies } from "next/headers";
 import { Geist } from "next/font/google";
 
 import { TRPCReactProvider } from "~/trpc/react";
@@ -34,25 +35,16 @@ export const viewport: Viewport = {
   maximumScale: 1, // Prevents annoying auto-zooming on inputs in mobile Safari
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const cookieStore = await cookies();
+  const themeMode = cookieStore.get("theme-mode")?.value === "dark" ? "dark" : "light";
+
   return (
-    <html lang="en" className={geist.variable}>
+    <html lang="en" className={`${geist.variable} ${themeMode === "dark" ? "dark" : ""}`.trim()}>
       <head>
         <link rel="manifest" href="/manifest.json" crossOrigin="use-credentials" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(() => {
-  try {
-    const mode = localStorage.getItem('theme-mode');
-    document.documentElement.classList.toggle('dark', mode === 'dark');
-  } catch (_) {
-    document.documentElement.classList.remove('dark');
-  }
-})();`,
-          }}
-        />
       </head>
       <body className="antialiased min-h-screen bg-background text-foreground">
         <PWARegister />

@@ -7,13 +7,17 @@ type ThemeMode = "light" | "dark";
 
 function getStoredTheme(): ThemeMode {
   if (typeof window === "undefined") return "light";
+
   const value = window.localStorage.getItem("theme-mode");
-  return value === "dark" ? "dark" : "light";
+  if (value === "dark" || value === "light") return value;
+
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
 
 function applyTheme(mode: ThemeMode) {
   const root = document.documentElement;
   root.classList.toggle("dark", mode === "dark");
+  document.cookie = `theme-mode=${mode}; path=/; max-age=31536000; samesite=lax`;
 }
 
 export default function ThemeToggle({ compact = false }: { compact?: boolean }) {

@@ -74,6 +74,19 @@ export default function AgendaPage() {
     }
   };
 
+  const getTimelineShadowClasses = (tone: "blue" | "purple" | "indigo" | "gray" = "blue") => {
+    switch (tone) {
+      case "purple":
+        return "shadow-[0_14px_32px_-20px_rgba(168,85,247,0.42)] hover:shadow-[0_18px_40px_-20px_rgba(168,85,247,0.56)]";
+      case "indigo":
+        return "shadow-[0_14px_32px_-20px_rgba(99,102,241,0.42)] hover:shadow-[0_18px_40px_-20px_rgba(99,102,241,0.56)]";
+      case "gray":
+        return "shadow-[0_14px_32px_-20px_rgba(107,114,128,0.28)] hover:shadow-[0_18px_40px_-20px_rgba(107,114,128,0.4)]";
+      default:
+        return "shadow-[0_14px_32px_-20px_rgba(59,130,246,0.42)] hover:shadow-[0_18px_40px_-20px_rgba(59,130,246,0.56)]";
+    }
+  };
+
   const getTimelineAccentClasses = (tone: "blue" | "purple" | "indigo" | "gray" = "blue") => {
     switch (tone) {
       case "purple":
@@ -133,28 +146,37 @@ export default function AgendaPage() {
     extraContent?: React.ReactNode,
   ) => {
     const surfaceClasses = getTimelineSurfaceClasses(tone);
+    const shadowClasses = getTimelineShadowClasses(tone);
     const accentClasses = getTimelineAccentClasses(tone);
     const chipClasses = getTimelineChipClasses(tone);
 
     return (
       <div
         key={item.id}
-        className={`group relative cursor-pointer overflow-hidden rounded-2xl border p-3 sm:p-4 backdrop-blur-sm transition-all duration-300 ${surfaceClasses} ${item.isCompleted ? 'opacity-60' : ''}`}
+        className={`group relative cursor-pointer overflow-hidden rounded-2xl border p-3 sm:p-4 backdrop-blur-sm transition-all duration-300 ${surfaceClasses} ${shadowClasses} ${item.isCompleted ? 'opacity-60' : ''}`}
         onClick={() => (bulkMode ? toggleItemSelection(item.id) : startEdit(item))}
       >
         <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${item.isCompleted ? 'bg-gray-700' : accentClasses}`} />
 
         <div className={layout === "stacked" ? "flex flex-col items-start gap-2" : "flex items-center gap-3 min-w-0"}>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted });
-            }}
-            className={`shrink-0 self-start rounded-xl border px-2 py-1 transition-all flex items-center justify-center gap-1 ${getTimelineActionClasses(tone, item.isCompleted)}`}
-          >
-            <CheckCircle size={12} className={item.isCompleted ? 'text-white' : tone === 'gray' ? 'text-gray-400' : tone === 'purple' ? 'text-purple-400' : tone === 'indigo' ? 'text-indigo-400' : 'text-blue-400'} />
-            <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
-          </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted });
+          }}
+          className={`shrink-0 self-start rounded-xl border px-2 py-1 transition-all cursor-pointer flex items-center justify-center gap-1 ${getTimelineActionClasses(tone, item.isCompleted)} ${
+            !item.isCompleted && (
+              tone === 'gray' ? 'hover:bg-gray-800 hover:text-white' :
+              tone === 'purple' ? 'hover:bg-purple-900 hover:text-white' :
+              tone === 'indigo' ? 'hover:bg-indigo-900 hover:text-white' :
+              'hover:bg-blue-900 hover:text-white'
+            )
+          }`}
+        >
+          <CheckCircle size={12} className={item.isCompleted ? 'text-white' : tone === 'gray' ? 'text-gray-400 group-hover:text-gray-200' : tone === 'purple' ? 'text-purple-400 group-hover:text-purple-200' : tone === 'indigo' ? 'text-indigo-400 group-hover:text-indigo-200' : 'text-blue-400 group-hover:text-blue-200'} />
+          <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
+        </button>
+
 
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">

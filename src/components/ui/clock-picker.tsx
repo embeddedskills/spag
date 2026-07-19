@@ -139,7 +139,7 @@ export default function ClockPicker({ value, onChange }: { value?: string, onCha
       </button>
 
       {open && popupPos && createPortal(
-        <div ref={popupRef} style={{ position: 'fixed', top: popupPos.top, left: popupPos.left }} className="bg-gray-900/95 border border-gray-800 rounded-[2.5rem] p-6 shadow-2xl z-[9999] w-[320px] backdrop-blur-2xl animate-in zoom-in-95 duration-200">
+        <div ref={popupRef} style={{ position: 'fixed', top: popupPos.top, left: popupPos.left }} className="theme-invert-on-light [&.theme-invert-on-light]:text-white bg-gray-900/95 border border-gray-800 rounded-[2.5rem] p-6 shadow-2xl z-[9999] w-[320px] backdrop-blur-2xl animate-in zoom-in-95 duration-200">
           {/* Header */}
           <div className="flex justify-between items-center mb-6 px-2">
             <div className="flex gap-1">

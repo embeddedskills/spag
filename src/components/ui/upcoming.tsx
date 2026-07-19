@@ -253,6 +253,13 @@ export default function UpcomingNotifier() {
     cancelAutoHide();
   };
 
+  const hideNotificationsPanel = () => {
+    setIsExpanded(false);
+    setShowBubble(notificationCountRef.current > 0);
+    setPinnedOpenState(false);
+    cancelAutoHide();
+  };
+
   useEffect(() => {
     stageCacheRef.current = readStageCache();
   }, []);
@@ -497,13 +504,22 @@ export default function UpcomingNotifier() {
             <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 md:text-[10px] md:tracking-[0.25em]">
               Active notifications
             </p>
-            <button
-              type="button"
-              onClick={clearAllForDashboard}
-              className="rounded-lg border border-gray-600 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-gray-300 hover:border-gray-400 md:text-[10px]"
-            >
-              Clear all
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={hideNotificationsPanel}
+                className="hidden rounded-lg border border-gray-600 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-300 hover:border-gray-400 md:inline-flex"
+              >
+                Hide
+              </button>
+              <button
+                type="button"
+                onClick={clearAllForDashboard}
+                className="rounded-lg border border-gray-600 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-gray-300 hover:border-gray-400 md:text-[10px]"
+              >
+                Clear all
+              </button>
+            </div>
           </div>
 
           {soundBlocked && (
@@ -582,7 +598,8 @@ export default function UpcomingNotifier() {
           onClick={() => {
             setIsExpanded(true);
             setShowBubble(false);
-            scheduleAutoHide();
+            setPinnedOpenState(true);
+            cancelAutoHide();
           }}
           className="hidden rounded-full border border-sky-500/50 bg-sky-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-sky-900/30 md:inline-flex"
         >

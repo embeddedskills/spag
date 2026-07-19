@@ -11,6 +11,12 @@ import MobileBottomNav from "~/components/ui/mobile-bottom-nav";
 export default function AppHeader({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const showBackDesktop = pathname !== "/";
+  const pageBackgroundClasses =
+    pathname === "/agenda"
+      ? "bg-white dark:bg-black"
+      : pathname === "/spending"
+        ? "bg-slate-50 dark:bg-slate-950"
+        : "bg-white dark:bg-black";
 
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors">
@@ -21,7 +27,7 @@ export default function AppHeader({ children }: { children: React.ReactNode }) {
               <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-300/70 bg-white dark:border-gray-700 dark:bg-gray-900">
                 <BriefcaseBusiness className="h-4 w-4 text-blue-500" />
               </span>
-              <span className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-700 dark:text-gray-200 sm:text-[11px] sm:tracking-[0.35em]">S P A G</span>
+              <span className="text-[10px] font-black tracking-[0.22em] text-slate-700 dark:text-gray-200 sm:text-[11px] sm:tracking-[0.35em]">SPAG OS</span>
             </Link>
 
             <div className="hidden min-w-0 sm:block">
@@ -40,10 +46,10 @@ export default function AppHeader({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="pt-24 pb-24 md:pt-20 md:pb-8">
+      <div className={`flex min-h-[calc(100vh-6rem)] flex-col pt-24 pb-24 md:min-h-[calc(100vh-5rem)] md:pt-20 md:pb-0 ${pageBackgroundClasses}`}>
         {showBackDesktop && (
-          <div className="mb-3 hidden px-3 sm:px-6 md:flex lg:px-8">
-            <div className="mx-auto flex w-full max-w-6xl justify-end">
+          <div className="hidden md:block">
+            <div className="mx-auto flex w-full max-w-6xl justify-end px-3 py-3 sm:px-6 lg:px-8">
               <Link
                 href="/"
                 className="rounded-xl border border-slate-300/70 bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-slate-700 transition hover:bg-slate-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
@@ -53,7 +59,8 @@ export default function AppHeader({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         )}
-        {children}
+        <div className="shrink-0">{children}</div>
+        <div aria-hidden="true" className="hidden grow md:block" />
       </div>
 
       <MobileBottomNav />
