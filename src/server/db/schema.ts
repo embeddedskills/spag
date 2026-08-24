@@ -1,13 +1,13 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
-  index,
   pgTable,
   pgTableCreator,
   text,
   timestamp,
   decimal,
   integer,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -19,6 +19,7 @@ export const user = createTable("user", {
   name: text("name").notNull(),
   username: text("username"),
   email: text("email").notNull().unique(),
+  activeHouseholdId: uuid("active_household_id"),
   emailVerified: boolean("email_verified")
     .$defaultFn(() => false)
     .notNull(),
@@ -75,11 +76,117 @@ export const verification = createTable("verification", {
   ),
 });
 
+export const households = createTable("households", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  createdByUserId: text("created_by_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const groups = createTable("groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id")
+    .notNull()
+    .references(() => households.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  category: text("category").notNull().default("other"),
+  createdByUserId: text("created_by_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const householdMembers = createTable(
+  "household_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    householdMemberUnique: uniqueIndex("household_member_unique").on(
+      table.householdId,
+      table.userId,
+    ),
+  }),
+);
+
+export const householdInvites = createTable("household_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id")
+    .notNull()
+    .references(() => households.id, { onDelete: "cascade" }),
+  invitedEmail: text("invited_email").notNull(),
+  invitedByUserId: text("invited_by_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  acceptedAt: timestamp("accepted_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const groupMembers = createTable(
+  "group_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    approvedAt: timestamp("approved_at"),
+    approvedByUserId: text("approved_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => ({
+    groupMemberUnique: uniqueIndex("group_member_unique").on(
+      table.groupId,
+      table.userId,
+    ),
+  }),
+);
+
+export const groupMemberRequests = createTable("group_member_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => groups.id, { onDelete: "cascade" }),
+  requestedByUserId: text("requested_by_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  targetUserId: text("target_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewedByUserId: text("reviewed_by_user_id").references(() => user.id, {
+    onDelete: "set null",
+  }),
+});
+
 export const userRelations = relations(user, ({ many }) => ({
   account: many(account),
   session: many(session),
-    expenses: many(expenses),
+  expenses: many(expenses),
   agendaItems: many(agendaItems),
+  householdMemberships: many(householdMembers),
+  createdHouseholds: many(households),
+  sentHouseholdInvites: many(householdInvites),
 }));
 
 export const accountRelations = relations(account, ({ one }) => ({
@@ -95,11 +202,91 @@ export const expenses = createTable("expenses", {
   description: text("description").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   category: text("category").notNull().default("General"),
-  currency: text("currency").notNull().default("EUR"), 
+  group: text("group").notNull().default("personal"),
+  currency: text("currency").notNull().default("EUR"),
+  expenseType: text("expense_type").notNull().default("one-off"),
+  recurrenceFrequency: text("recurrence_frequency").notNull().default("none"),
+  recurrenceDay: integer("recurrence_day"),
+  budgetId: uuid("budget_id"),
+  splitWithUserIds: text("split_with_user_ids").default(""),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  householdId: uuid("household_id").references(() => households.id, {
+    onDelete: "cascade",
+  }),
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
+  visibility: text("visibility").notNull().default("personal"),
+  createdByUserId: text("created_by_user_id").references(() => user.id, {
+    onDelete: "cascade",
+  }),
+  paidByUserId: text("paid_by_user_id").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  notes: text("notes"),
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
+});
+
+export const budgets = createTable("budgets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id")
+    .notNull()
+    .references(() => households.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("EUR"),
+  period: text("period").notNull().default("monthly"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const incomeSources = createTable("income_sources", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id")
+    .notNull()
+    .references(() => households.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: text("currency").notNull().default("EUR"),
+  frequency: text("frequency").notNull().default("monthly"),
+  recurrenceDay: integer("recurrence_day"),
+  startDate: timestamp("start_date").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const posts = createTable("posts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  createdById: text("created_by_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const settlements = createTable("settlements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id")
+    .notNull()
+    .references(() => households.id, { onDelete: "cascade" }),
+  fromUserId: text("from_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  toUserId: text("to_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  createdByUserId: text("created_by_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  settledAt: timestamp("settled_at").defaultNow().notNull(),
 });
 
 export const agendaItems = createTable("agenda_items", {
@@ -114,6 +301,9 @@ export const agendaItems = createTable("agenda_items", {
   repeatInterval: text("repeat_interval").default("none"), // 'daily', 'weekly', 'monthly', 'none'
   pinned: boolean("pinned").default(false),
   sticky: boolean("sticky").default(false),
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
+  visibility: text("visibility").notNull().default("personal"),
+  participantUserIds: text("participant_user_ids").default(""),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   userId: text("user_id")
     .notNull()
@@ -125,6 +315,25 @@ export const expensesRelations = relations(expenses, ({ one }) => ({
     fields: [expenses.userId],
     references: [user.id],
   }),
+  household: one(households, {
+    fields: [expenses.householdId],
+    references: [households.id],
+  }),
+  createdBy: one(user, {
+    fields: [expenses.createdByUserId],
+    references: [user.id],
+  }),
+  paidBy: one(user, {
+    fields: [expenses.paidByUserId],
+    references: [user.id],
+  }),
+}));
+
+export const postsRelations = relations(posts, ({ one }) => ({
+  user: one(user, {
+    fields: [posts.createdById],
+    references: [user.id],
+  }),
 }));
 
 export const agendaItemsRelations = relations(agendaItems, ({ one }) => ({
@@ -133,6 +342,44 @@ export const agendaItemsRelations = relations(agendaItems, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+export const householdsRelations = relations(households, ({ one, many }) => ({
+  createdBy: one(user, {
+    fields: [households.createdByUserId],
+    references: [user.id],
+  }),
+  members: many(householdMembers),
+  invites: many(householdInvites),
+  expenses: many(expenses),
+}));
+
+export const householdMembersRelations = relations(
+  householdMembers,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [householdMembers.householdId],
+      references: [households.id],
+    }),
+    user: one(user, {
+      fields: [householdMembers.userId],
+      references: [user.id],
+    }),
+  }),
+);
+
+export const householdInvitesRelations = relations(
+  householdInvites,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [householdInvites.householdId],
+      references: [households.id],
+    }),
+    invitedBy: one(user, {
+      fields: [householdInvites.invitedByUserId],
+      references: [user.id],
+    }),
+  }),
+);
 
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id", { length: 255 }).notNull().primaryKey().$defaultFn(() => crypto.randomUUID()),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "~/trpc/react";
 import TimestampPicker from "~/components/ui/timestamp-picker";
 import { useSearchParams } from "next/navigation";
@@ -8,6 +8,7 @@ import {
   Trash2, Plus, Calendar, Bell, StickyNote, 
   CheckCircle, Repeat, Loader2, Clock, X, Pin 
 } from "lucide-react";
+import { TimelineHeatmap } from "~/components/ui/timeline-heatmap";
 
 function getStoredAgendaView(key: "agenda-timeline-view" | "agenda-notes-view") {
   if (typeof window === "undefined") return "list" as const;
@@ -34,6 +35,9 @@ export default function AgendaPage() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [sticky, setSticky] = useState(false);
   const [category, setCategory] = useState("Other");
+  const [groupId, setGroupId] = useState("");
+  const [sharingMode, setSharingMode] = useState<"group" | "participants">("group");
+  const [participantUserIds, setParticipantUserIds] = useState<string[]>([]);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkCategory, setBulkCategory] = useState("Other");
@@ -249,6 +253,11 @@ export default function AgendaPage() {
 
   const utils = api.useUtils();
   const { data: items, isLoading } = api.agenda.getAll.useQuery();
+  const { data: sharedGroups = [] } = api.group.listMine.useQuery();
+  const { data: groupMembers = [] } = api.group.getMembers.useQuery(
+    { groupId: groupId || "00000000-0000-0000-0000-000000000000" },
+    { enabled: Boolean(groupId) },
+  );
 
   const stickyItems = items?.filter(item => item.sticky && item.type !== 'note').sort((a, b) => {
     if (sortBy === 'targetDate') {
@@ -377,6 +386,9 @@ export default function AgendaPage() {
     setIsCompleted(false);
     setSticky(false);
     setCategory("Other");
+    setGroupId("");
+    setSharingMode("group");
+    setParticipantUserIds([]);
     setEditingId(null);
     setEditingCreatedAt(null);
   };
@@ -446,6 +458,13 @@ export default function AgendaPage() {
     setIsCompleted(item.isCompleted || false);
     setSticky(item.sticky || false);
     setCategory(item.category ?? "Other");
+    setGroupId(item.groupId ?? "");
+    setSharingMode(item.visibility === "participants" ? "participants" : "group");
+    setParticipantUserIds(
+      typeof item.participantUserIds === "string"
+        ? item.participantUserIds.split(",").filter(Boolean)
+        : [],
+    );
     setEditingId(item.id);
     setEditingCreatedAt(item.createdAt ? new Date(item.createdAt) : null);
     setIsOpen(true);
@@ -471,7 +490,10 @@ export default function AgendaPage() {
         pinned,
         sticky,
         isCompleted,
-        category
+        category,
+        groupId: groupId || undefined,
+        visibility: groupId ? sharingMode : "personal",
+        participantUserIds,
       });
     } else {
       addMutation.mutate({ 
@@ -482,7 +504,10 @@ export default function AgendaPage() {
         repeatInterval: repeat, 
         startTime,
         pinned,
-        sticky
+        sticky,
+        groupId: groupId || undefined,
+        visibility: groupId ? sharingMode : "personal",
+        participantUserIds,
       });
     }
   };
@@ -531,6 +556,101 @@ export default function AgendaPage() {
       return Array.from(next);
     });
   };
+
+  const getISOWeekNumber = (date: Date): number => {
+  const target = new Date(date.valueOf());
+  const dayNr = (date.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay() + 7) % 7));
+  }
+  return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
+  };
+
+  // 1. Manage state for the active heatmap date filter window
+  const [heatmapViewMode, setHeatmapViewMode] = useState<'weeks' | 'months'>('weeks');
+  const [selectedWeekStart, setSelectedWeekStart] = useState<Date | null>(null);
+
+  // 2. Helper validation to check if an item falls within the 7-day filter window
+  const isInSelectedWeek = (itemDate: Date | string) => {
+    if (!selectedWeekStart) return true;
+    const d = new Date(itemDate);
+    
+    if (heatmapViewMode === 'weeks') {
+      const start = selectedWeekStart.getTime();
+      const end = start + 7 * 24 * 60 * 60 * 1000;
+      return d.getTime() >= start && d.getTime() < end;
+    } else {
+      // Check if the item matches the same year and month
+      return d.getFullYear() === selectedWeekStart.getFullYear() && d.getMonth() === selectedWeekStart.getMonth();
+    }
+  };
+
+
+  // 3. Slice your existing structured array groups cleanly by matching dates
+  const finalStickyGroups = selectedWeekStart 
+    ? (groupedSticky.map(([label, group]) => [
+        label, 
+        (group || []).filter(item => isInSelectedWeek(item.targetDate))
+      ]).filter(([_, group]) => (group || []).length > 0) as [string, typeof activeStickyItems][])
+    : groupedSticky;
+
+  const finalTaskGroups = selectedWeekStart 
+    ? (groupedTasks.map(([label, group]) => [
+        label, 
+        (group || []).filter(item => isInSelectedWeek(item.targetDate))
+      ]).filter(([_, group]) => (group || []).length > 0) as [string, typeof activeTasksReminders][])
+    : groupedTasks;
+
+
+  // 4. Generate the matrix tracking grid array dynamically for the view
+// Generate data cells dynamically based on the toggled view mode
+const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 }, (_, i) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (heatmapViewMode === 'weeks') {
+    const weekStart = new Date(today.getTime() + i * 7 * 24 * 60 * 60 * 1000);
+    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    const count = [...activeStickyItems, ...activeTasksReminders].filter(item => {
+      const d = new Date(item.targetDate);
+      return d >= weekStart && d < weekEnd && !item.isCompleted;
+    }).length;
+
+    return {
+      dateString: weekStart.toISOString().split("T")[0]!,
+      count,
+      // Calculates the actual real-world calendar week number of the year!
+      label: `W${getISOWeekNumber(weekStart)}`, 
+      hasPriority: activeStickyItems.some(item => {
+        const d = new Date(item.targetDate);
+        return d >= weekStart && d < weekEnd && !item.isCompleted;
+      })
+    };
+  } else {
+    // ... Leave your monthly matrix logic exactly the same as before ...
+    const monthStart = new Date(today.getFullYear(), today.getMonth() + i, 1);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + i + 1, 0, 23, 59, 59);
+
+    const count = [...activeStickyItems, ...activeTasksReminders].filter(item => {
+      const d = new Date(item.targetDate);
+      return d >= monthStart && d < monthEnd && !item.isCompleted;
+    }).length;
+
+    return {
+      dateString: monthStart.toISOString().split("T")[0]!,
+      count,
+      label: monthStart.toLocaleDateString(undefined, { month: 'short' }),
+      hasPriority: activeStickyItems.some(item => {
+        const d = new Date(item.targetDate);
+        return d >= monthStart && d < monthEnd && !item.isCompleted;
+      })
+    };
+  }
+});
 
   const isBulkBusy =
     bulkDeleteMutation.isPending ||
@@ -631,6 +751,51 @@ export default function AgendaPage() {
                   ))}
                 </select>
               </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-black/40 p-4 sm:p-5 rounded-2xl border border-gray-800">
+                <label className="text-sm text-gray-400 sm:flex-shrink-0">Shared group</label>
+                <select
+                  value={groupId}
+                  onChange={(event) => {
+                    setGroupId(event.target.value);
+                    setParticipantUserIds([]);
+                  }}
+                  className="bg-transparent text-sm font-bold uppercase tracking-widest text-gray-300 outline-none cursor-pointer flex-1"
+                >
+                  <option value="">Personal only</option>
+                  {sharedGroups.filter((group) => group.memberStatus === "active").map((group) => (
+                    <option key={group.id} value={group.id}>{group.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {groupId && (
+                <div className="space-y-3 rounded-2xl border border-gray-800 bg-black/40 p-4 sm:p-5">
+                  <label className="text-sm text-gray-400">Who can see it?</label>
+                  <select
+                    value={sharingMode}
+                    onChange={(event) => setSharingMode(event.target.value as "group" | "participants")}
+                    className="w-full rounded-xl bg-gray-900 px-3 py-3 text-sm font-bold uppercase tracking-widest text-gray-300 outline-none"
+                  >
+                    <option value="group">Everyone in this group</option>
+                    <option value="participants">Selected members only</option>
+                  </select>
+                  {sharingMode === "participants" && (
+                    <div className="space-y-2">
+                      {groupMembers.map((member) => (
+                        <label key={member.id} className="flex items-center gap-3 rounded-xl bg-gray-900 px-3 py-2 text-sm text-gray-300">
+                          <input
+                            type="checkbox"
+                            checked={participantUserIds.includes(member.id)}
+                            onChange={(event) => setParticipantUserIds((current) => event.target.checked ? [...new Set([...current, member.id])] : current.filter((id) => id !== member.id))}
+                          />
+                          {member.name}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               
               {type === 'note' && (
                 <div className="flex items-center gap-4">
@@ -879,6 +1044,43 @@ export default function AgendaPage() {
           {/* View controls moved to the non-priority timeline section (applies only to other sequences) */}
         </div>
 
+        {/* 1. HEATMAP COMPONENT */}
+        <TimelineHeatmap 
+          tone="indigo"
+          data={heatmapData}
+          viewMode={heatmapViewMode}
+          onViewModeChange={(mode) => {
+            setSelectedWeekStart(null); // Clear active filter state on toggle
+            setHeatmapViewMode(mode);
+          }}
+          selectedDateString={selectedWeekStart ? selectedWeekStart.toISOString().split("T")[0]! : null}
+          onCellClick={(dateString) => {
+            const clickedDate = new Date(dateString);
+            if (selectedWeekStart?.getTime() === clickedDate.getTime()) {
+              setSelectedWeekStart(null);
+            } else {
+              setSelectedWeekStart(clickedDate);
+            }
+          }}
+        />
+
+
+        {/* Clear Filter Indicator */}
+        {selectedWeekStart && (
+          <div className="mb-4 flex items-center justify-between bg-gray-900/40 border border-gray-800 rounded-xl px-4 py-2">
+            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+              Viewing Week of {selectedWeekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} Only
+            </span>
+            <button 
+              onClick={() => setSelectedWeekStart(null)}
+              className="text-[9px] font-black uppercase tracking-wider text-red-400 hover:text-red-300 cursor-pointer"
+            >
+              Clear Filter [x]
+            </button>
+          </div>
+        )}
+
+
         {/* STICKY SECTION */}
         {activeStickyItems.length > 0 && (
           <div className="mb-8 sm:mb-12">
@@ -893,7 +1095,7 @@ export default function AgendaPage() {
                 {activeStickyItems.length} items {pinnedExpanded ? "−" : "+"}
               </button>
             </div>
-            {pinnedExpanded && groupedSticky.map(([label, group]) => (
+            {pinnedExpanded && finalStickyGroups.map(([label, group]) => (
               <div key={label} className="mb-6">
                 <h3 className="mb-3 text-sm font-black text-gray-400">{label}</h3>
                 <div className={`grid gap-2 sm:gap-3 ${timelineView === "list" ? "grid-cols-1" : "grid-cols-2 xl:grid-cols-3"}`}>
@@ -929,7 +1131,7 @@ export default function AgendaPage() {
             </div>
 
             {/* Render grouped tasks by due date */}
-            {upcomingExpanded && groupedTasks.map(([label, group]) => (
+            {upcomingExpanded && finalTaskGroups.map(([label, group]) => (
               <div key={label} className="mb-8">
                 <h3 className="mb-3 text-sm font-black text-gray-400">{label}</h3>
                 <div className={`grid gap-2 sm:gap-3 ${timelineView === "list" ? "grid-cols-1" : "grid-cols-2 xl:grid-cols-3"}`}>

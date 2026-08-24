@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Calendar, LayoutDashboard, LogOut, Menu, Wallet, X } from "lucide-react";
+import { Calendar, LayoutDashboard, LogOut, Menu, PieChart, Users, Wallet, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { authClient } from "~/server/better-auth/client";
 
@@ -10,6 +10,8 @@ const appLinks = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agenda", label: "Agenda", icon: Calendar },
   { href: "/spending", label: "Spending", icon: Wallet },
+  { href: "/groups", label: "Groups", icon: Users },
+  { href: "/budgets", label: "Budgets & income", icon: PieChart },
 ];
 
 export default function AppBurgerMenu() {

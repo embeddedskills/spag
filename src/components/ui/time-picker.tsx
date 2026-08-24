@@ -10,11 +10,11 @@ export default function TimePicker({ value, onChange }: { value?: string, onChan
   const [isAM, setIsAM] = useState(true);
 
   useEffect(() => {
-    if (!value) return;
+    if (!value || typeof value !== "string") return;
     const parts = value.split(":");
     if (parts.length < 2) return;
-    let hh = parseInt(parts[0], 10);
-    const mm = parseInt(parts[1], 10) || 0;
+    const hh = Number.parseInt(parts[0] ?? "0", 10);
+    const mm = Number.parseInt(parts[1] ?? "0", 10) || 0;
     const am = hh < 12;
     setIsAM(am);
     let h12 = hh % 12;

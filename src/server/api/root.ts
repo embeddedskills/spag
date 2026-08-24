@@ -1,7 +1,11 @@
 import { agendaRouter } from "~/server/api/routers/agenda";
 import { createCallerFactory, createTRPCRouter } from "~/server/api/trpc";
+import { householdRouter } from "~/server/api/routers/household";
+import { postRouter } from "~/server/api/routers/post";
+import { groupRouter } from "~/server/api/routers/group";
 import { spendingRouter } from "./routers/spending";
 import { notificationRouter } from "./routers/notification";
+import { budgetRouter } from "./routers/budget";
 
 /**
  * This is the primary router for your server.
@@ -10,8 +14,12 @@ import { notificationRouter } from "./routers/notification";
  */
 export const appRouter = createTRPCRouter({
   spending: spendingRouter,
+  household: householdRouter,
+  group: groupRouter,
   agenda: agendaRouter,
+  post: postRouter,
   notification: notificationRouter,
+  budget: budgetRouter,
 });
 
 // export type definition of API

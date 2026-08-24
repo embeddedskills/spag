@@ -8,6 +8,6 @@ export default {
   dbCredentials: {
     url: env.DATABASE_URL,
   },
-  tablesFilter: ["spag_*"],
+  tablesFilter: ["spag_*", "push_subscriptions"],
   strict: true,
 } satisfies Config;

@@ -1,7 +1,12 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc"; // 1. Use protectedProcedure
-import { agendaItems } from "~/server/db/schema";
-import { eq, and, desc, inArray } from "drizzle-orm"; // 2. Add 'and' and 'desc'
+import { agendaItems, groupMembers } from "~/server/db/schema";
+import { eq, and, desc, inArray, like, or, sql } from "drizzle-orm";
+import {
+  assertGroupInHousehold,
+  assertGroupMembership,
+  ensureActiveHouseholdForUser,
+} from "~/server/finance/household-context";
 
 export const agendaRouter = createTRPCRouter({
   create: protectedProcedure
@@ -13,11 +18,23 @@ export const agendaRouter = createTRPCRouter({
       repeatInterval: z.string().optional(),
       startTime: z.date().optional(),
       pinned: z.boolean().optional(),
-      sticky: z.boolean().optional()
+      sticky: z.boolean().optional(),
+      groupId: z.string().uuid().optional(),
+      visibility: z.enum(["personal", "group", "participants"]).default("personal"),
+      participantUserIds: z.array(z.string()).default([])
     }))
     .mutation(async ({ ctx, input }) => {
       if (input.type !== "note" && !input.startTime) {
         throw new Error("Tasks and reminders require a target date/time.");
+      }
+
+      const householdId = await ensureActiveHouseholdForUser(ctx.session.user.id);
+      if (input.groupId) {
+        await assertGroupInHousehold(input.groupId, householdId);
+        await assertGroupMembership(ctx.session.user.id, input.groupId);
+        for (const participantUserId of input.participantUserIds) {
+          await assertGroupMembership(participantUserId, input.groupId);
+        }
       }
 
       return await ctx.db.insert(agendaItems).values({
@@ -29,16 +46,45 @@ export const agendaRouter = createTRPCRouter({
         repeatInterval: input.repeatInterval ?? "none",
         pinned: input.pinned ?? false,
         sticky: input.sticky ?? false,
+        groupId: input.groupId ?? null,
+        visibility: input.groupId ? input.visibility : "personal",
+        participantUserIds: `,${Array.from(new Set(input.participantUserIds)).join(",")},`,
         userId: ctx.session.user.id, // 3. Use actual user ID
       });
     }),
 
   getAll: protectedProcedure.query(async ({ ctx }) => {
-    // 4. Filter by userId so users don't see each other's data
+    const householdId = await ensureActiveHouseholdForUser(ctx.session.user.id);
+    const memberships = await ctx.db
+      .select({ groupId: groupMembers.groupId })
+      .from(groupMembers)
+      .where(and(eq(groupMembers.userId, ctx.session.user.id), eq(groupMembers.status, "active")));
+    const groupIds = memberships.map((membership) => membership.groupId);
+
     return await ctx.db
       .select()
       .from(agendaItems)
-      .where(eq(agendaItems.userId, ctx.session.user.id))
+      .where(
+        and(
+          or(
+            and(
+              eq(agendaItems.userId, ctx.session.user.id),
+              eq(agendaItems.visibility, "personal"),
+            ),
+            and(
+              eq(agendaItems.visibility, "group"),
+              groupIds.length > 0 ? inArray(agendaItems.groupId, groupIds) : sql`false`,
+            ),
+            and(
+              eq(agendaItems.visibility, "participants"),
+              or(
+                eq(agendaItems.userId, ctx.session.user.id),
+                like(agendaItems.participantUserIds, `%,${ctx.session.user.id},%`),
+              ),
+            ),
+          ),
+        ),
+      )
       .orderBy(desc(agendaItems.createdAt));
   }),
 
@@ -137,10 +183,22 @@ export const agendaRouter = createTRPCRouter({
       pinned: z.boolean().optional(),
       sticky: z.boolean().optional(),
       isCompleted: z.boolean().optional()
+      ,groupId: z.string().uuid().optional(),
+      visibility: z.enum(["personal", "group", "participants"]).default("personal"),
+      participantUserIds: z.array(z.string()).default([])
     }))
     .mutation(async ({ ctx, input }) => {
       if (input.type !== "note" && !input.startTime) {
         throw new Error("Tasks and reminders require a target date/time.");
+      }
+
+      const householdId = await ensureActiveHouseholdForUser(ctx.session.user.id);
+      if (input.groupId) {
+        await assertGroupInHousehold(input.groupId, householdId);
+        await assertGroupMembership(ctx.session.user.id, input.groupId);
+        for (const participantUserId of input.participantUserIds) {
+          await assertGroupMembership(participantUserId, input.groupId);
+        }
       }
 
       return await ctx.db
@@ -155,6 +213,9 @@ export const agendaRouter = createTRPCRouter({
           pinned: input.pinned ?? false,
           sticky: input.sticky ?? false,
           isCompleted: input.isCompleted ?? false,
+          groupId: input.groupId ?? null,
+          visibility: input.groupId ? input.visibility : "personal",
+          participantUserIds: `,${Array.from(new Set(input.participantUserIds)).join(",")},`,
         })
         .where(
           and(

@@ -1,7 +1,7 @@
 "use client";
 import { authClient } from "~/server/better-auth/client";
 import Link from "next/link";
-import { Calendar, Wallet, LayoutDashboard, TrendingUp, Clock } from "lucide-react";
+import { Calendar, Wallet, LayoutDashboard, TrendingUp, Clock, Users, Settings, PieChart } from "lucide-react";
 import AppHeader from "~/components/ui/app-header";
 
 
@@ -67,7 +67,7 @@ export default function HomePage() {
           <h1 className="text-2xl font-bold tracking-tight text-white">Welcome, {session.user.name}</h1>
         </div>
 
-        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-3 sm:gap-6 lg:gap-8">
+        <div className="mx-auto grid max-w-6xl grid-cols-2 gap-3 sm:gap-6 lg:grid-cols-3 lg:gap-8">
         {/* Agenda Card */}
         <Link href="/agenda" className="group relative min-w-0 p-4 sm:p-7 lg:p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[1.5rem] sm:rounded-[2.5rem] border border-gray-800 hover:border-blue-500/50 transition-all duration-500 active:scale-[0.98]">
           <div className="flex flex-col h-full justify-between">
@@ -106,6 +106,66 @@ export default function HomePage() {
             </div>
           </div>
           <Wallet className="absolute -bottom-4 -right-4 sm:-bottom-6 sm:-right-6 w-20 h-20 sm:w-40 sm:h-40 text-green-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
+        </Link>
+
+        {/* Groups Card */}
+        <Link href="/groups" className="group relative min-w-0 p-4 sm:p-7 lg:p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[1.5rem] sm:rounded-[2.5rem] border border-gray-800 hover:border-cyan-500/50 transition-all duration-500 active:scale-[0.98]">
+          <div className="flex flex-col h-full justify-between">
+            <div>
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-cyan-600/10 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-8 border border-cyan-500/20 group-hover:scale-110 transition-transform duration-500">
+                <Users className="w-5 h-5 sm:w-7 sm:h-7 text-cyan-500" />
+              </div>
+              <h2 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-3 tracking-tight">Groups</h2>
+              <p className="text-gray-500 text-xs sm:text-sm leading-relaxed">
+                Create shared spaces for family, friends, work, and private collaboration.
+              </p>
+            </div>
+            <div className="mt-6 sm:mt-12 flex items-center gap-2 text-[9px] sm:text-[10px] font-black text-cyan-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+              <Users className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+              Manage Groups
+            </div>
+          </div>
+          <Users className="absolute -bottom-4 -right-4 sm:-bottom-6 sm:-right-6 w-20 h-20 sm:w-40 sm:h-40 text-cyan-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
+        </Link>
+
+        {/* Budgets Card */}
+        <Link href="/budgets" className="group relative min-w-0 p-4 sm:p-7 lg:p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[1.5rem] sm:rounded-[2.5rem] border border-gray-800 hover:border-emerald-500/50 transition-all duration-500 active:scale-[0.98]">
+          <div className="flex flex-col h-full justify-between">
+            <div>
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-emerald-600/10 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-8 border border-emerald-500/20 group-hover:scale-110 transition-transform duration-500">
+                <PieChart className="w-5 h-5 sm:w-7 sm:h-7 text-emerald-500" />
+              </div>
+              <h2 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-3 tracking-tight">Budgets & income</h2>
+              <p className="text-gray-500 text-xs sm:text-sm leading-relaxed">
+                Plan personal and shared money, recurring income, and spending limits.
+              </p>
+            </div>
+            <div className="mt-6 sm:mt-12 flex items-center gap-2 text-[9px] sm:text-[10px] font-black text-emerald-500 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+              <PieChart className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+              Plan Money
+            </div>
+          </div>
+          <PieChart className="absolute -bottom-4 -right-4 sm:-bottom-6 sm:-right-6 w-20 h-20 sm:w-40 sm:h-40 text-emerald-500 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
+        </Link>
+
+        {/* Settings Card */}
+        <Link href="/settings" className="group relative min-w-0 p-4 sm:p-7 lg:p-10 bg-gradient-to-br from-gray-900/80 to-black rounded-[1.5rem] sm:rounded-[2.5rem] border border-gray-800 hover:border-slate-500/60 transition-all duration-500 active:scale-[0.98]">
+          <div className="flex flex-col h-full justify-between">
+            <div>
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-slate-500/10 rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-8 border border-slate-500/20 group-hover:scale-110 transition-transform duration-500">
+                <Settings className="w-5 h-5 sm:w-7 sm:h-7 text-slate-400" />
+              </div>
+              <h2 className="text-xl sm:text-3xl font-bold mb-2 sm:mb-3 tracking-tight">Settings</h2>
+              <p className="text-gray-500 text-xs sm:text-sm leading-relaxed">
+                Account, notification, and workspace preferences.
+              </p>
+            </div>
+            <div className="mt-6 sm:mt-12 flex items-center gap-2 text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+              <Settings className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+              Open Settings
+            </div>
+          </div>
+          <Settings className="absolute -bottom-4 -right-4 sm:-bottom-6 sm:-right-6 w-20 h-20 sm:w-40 sm:h-40 text-slate-400 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
         </Link>
         </div>
       </main>

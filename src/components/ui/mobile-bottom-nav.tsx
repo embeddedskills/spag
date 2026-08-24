@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Calendar, LayoutDashboard, Minus, Wallet } from "lucide-react";
+import { Bell, Calendar, LayoutDashboard, Minus, PieChart, Users, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const primaryNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agenda", label: "Agenda", icon: Calendar },
   { href: "/spending", label: "Spending", icon: Wallet },
+  { href: "/groups", label: "Groups", icon: Users },
+  { href: "/budgets", label: "Budgets", icon: PieChart },
 ];
 
 export default function MobileBottomNav() {
@@ -31,7 +33,7 @@ export default function MobileBottomNav() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/90 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl dark:border-gray-800 dark:bg-gray-950/90 md:hidden">
-      <ul className="mx-auto grid max-w-xl grid-cols-[1fr_1fr_1fr_auto] gap-2">
+      <ul className="mx-auto grid max-w-xl grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2">
         {primaryNav.map((item) => {
           const active = pathname === item.href;
           const Icon = item.icon;
