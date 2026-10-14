@@ -7,6 +7,7 @@ import {
   timestamp,
   decimal,
   integer,
+  index,
   uniqueIndex,
   uuid,
   varchar,
@@ -16,10 +17,14 @@ export const createTable = pgTableCreator((name) => `spag_${name}`);
 
 export const user = createTable("user", {
   id: text("id").primaryKey(),
-  name: text("name").notNull(),
+  name: text("name"),
+  encryptedPayload: text("encrypted_payload"),
   username: text("username"),
+  expenseCategories: text("expense_categories"),
   email: text("email").notNull().unique(),
   activeHouseholdId: uuid("active_household_id"),
+  encryptionPublicKey: text("encryption_public_key"),
+  encryptedPrivateKey: text("encrypted_private_key"),
   emailVerified: boolean("email_verified")
     .$defaultFn(() => false)
     .notNull(),
@@ -43,7 +48,9 @@ export const session = createTable("session", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-});
+}, (table) => ({
+  userIdIndex: index("session_user_id_idx").on(table.userId),
+}));
 
 export const account = createTable("account", {
   id: text("id").primaryKey(),
@@ -92,6 +99,7 @@ export const groups = createTable("groups", {
     .references(() => households.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   category: text("category").notNull().default("other"),
+  expenseCategories: text("expense_categories"),
   createdByUserId: text("created_by_user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -146,6 +154,7 @@ export const groupMembers = createTable(
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"),
     status: text("status").notNull().default("active"),
+    canManageCategories: boolean("can_manage_categories").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     approvedAt: timestamp("approved_at"),
     approvedByUserId: text("approved_by_user_id").references(() => user.id, {
@@ -156,6 +165,11 @@ export const groupMembers = createTable(
     groupMemberUnique: uniqueIndex("group_member_unique").on(
       table.groupId,
       table.userId,
+    ),
+    groupMemberStatusIndex: index("group_member_status_idx").on(
+      table.userId,
+      table.status,
+      table.groupId,
     ),
   }),
 );
@@ -199,8 +213,9 @@ export const sessionRelations = relations(session, ({ one }) => ({
 
 export const expenses = createTable("expenses", {
   id: uuid("id").primaryKey().defaultRandom(),
-  description: text("description").notNull(),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  description: text("description"),
+  encryptedPayload: text("encrypted_payload"),
+  amount: decimal("amount", { precision: 24, scale: 8 }).notNull(),
   category: text("category").notNull().default("General"),
   group: text("group").notNull().default("personal"),
   currency: text("currency").notNull().default("EUR"),
@@ -225,7 +240,18 @@ export const expenses = createTable("expenses", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-});
+}, (table) => ({
+  householdCreatedIndex: index("expense_household_created_idx").on(
+    table.householdId,
+    table.createdAt,
+  ),
+  householdUserCreatedIndex: index("expense_household_user_created_idx").on(
+    table.householdId,
+    table.userId,
+    table.createdAt,
+  ),
+  budgetIdIndex: index("expense_budget_id_idx").on(table.budgetId),
+}));
 
 export const budgets = createTable("budgets", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -236,12 +262,18 @@ export const budgets = createTable("budgets", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  name: text("name"),
+  encryptedPayload: text("encrypted_payload"),
+  amount: decimal("amount", { precision: 24, scale: 8 }).notNull(),
   currency: text("currency").notNull().default("EUR"),
   period: text("period").notNull().default("monthly"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  householdCreatedIndex: index("budget_household_created_idx").on(
+    table.householdId,
+    table.createdAt,
+  ),
+}));
 
 export const incomeSources = createTable("income_sources", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -252,19 +284,26 @@ export const incomeSources = createTable("income_sources", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
+  name: text("name"),
+  encryptedPayload: text("encrypted_payload"),
   category: text("category").notNull(),
-  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 24, scale: 8 }).notNull(),
   currency: text("currency").notNull().default("EUR"),
   frequency: text("frequency").notNull().default("monthly"),
   recurrenceDay: integer("recurrence_day"),
   startDate: timestamp("start_date").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  householdCreatedIndex: index("income_household_created_idx").on(
+    table.householdId,
+    table.createdAt,
+  ),
+}));
 
 export const posts = createTable("posts", {
   id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
+  name: text("name"),
+  encryptedPayload: text("encrypted_payload"),
   createdById: text("created_by_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -282,7 +321,8 @@ export const settlements = createTable("settlements", {
   toUserId: text("to_user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 24, scale: 8 }).notNull(),
+  currency: text("currency").notNull().default("USD"),
   createdByUserId: text("created_by_user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
@@ -291,7 +331,8 @@ export const settlements = createTable("settlements", {
 
 export const agendaItems = createTable("agenda_items", {
   id: uuid("id").primaryKey().defaultRandom(),
-  title: text("title").notNull(),
+  title: text("title"),
+  encryptedPayload: text("encrypted_payload"),
   type: text("type").notNull(), // 'task', 'reminder', 'note'
   category: text("category").notNull().default("Other"),
   content: text("content"),
@@ -299,6 +340,12 @@ export const agendaItems = createTable("agenda_items", {
   isCompleted: boolean("is_completed").default(false),
   notified: boolean("notified").$defaultFn(() => false).notNull(),
   repeatInterval: text("repeat_interval").default("none"), // 'daily', 'weekly', 'monthly', 'none'
+  scheduleMode: text("schedule_mode").default("legacy").notNull(), // 'legacy', 'fixedTimes', 'interval'
+  scheduleTimes: text("schedule_times").default(""),
+  intervalMinutes: integer("interval_minutes"),
+  durationMode: text("duration_mode").default("ongoing").notNull(), // 'ongoing', 'days', 'untilDate'
+  durationDays: integer("duration_days"),
+  endDate: timestamp("end_date"),
   pinned: boolean("pinned").default(false),
   sticky: boolean("sticky").default(false),
   groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
@@ -308,7 +355,43 @@ export const agendaItems = createTable("agenda_items", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-});
+}, (table) => ({
+  userCreatedIndex: index("agenda_user_created_idx").on(
+    table.userId,
+    table.createdAt,
+  ),
+  userTargetIndex: index("agenda_user_target_idx").on(
+    table.userId,
+    table.targetDate,
+  ),
+}));
+
+export const agendaOccurrences = createTable(
+  "agenda_occurrences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agendaItemId: uuid("agenda_item_id")
+      .notNull()
+      .references(() => agendaItems.id, { onDelete: "cascade" }),
+    scheduledAt: timestamp("scheduled_at").notNull(),
+    isCompleted: boolean("is_completed").default(false).notNull(),
+    completedAt: timestamp("completed_at"),
+    notified: boolean("notified").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    agendaOccurrenceUnique: uniqueIndex("agenda_occurrence_unique").on(
+      table.agendaItemId,
+      table.scheduledAt,
+    ),
+    agendaOccurrenceScheduleIndex: index("agenda_occurrence_schedule_idx").on(
+      table.agendaItemId,
+      table.isCompleted,
+      table.notified,
+      table.scheduledAt,
+    ),
+  }),
+);
 
 export const expensesRelations = relations(expenses, ({ one }) => ({
   user: one(user, {
@@ -340,6 +423,13 @@ export const agendaItemsRelations = relations(agendaItems, ({ one }) => ({
   user: one(user, {
     fields: [agendaItems.userId],
     references: [user.id],
+  }),
+}));
+
+export const agendaOccurrencesRelations = relations(agendaOccurrences, ({ one }) => ({
+  agendaItem: one(agendaItems, {
+    fields: [agendaOccurrences.agendaItemId],
+    references: [agendaItems.id],
   }),
 }));
 

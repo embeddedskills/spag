@@ -2,25 +2,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { headers } from "next/headers";
 import { auth } from "~/server/better-auth";
 import { db } from "~/server/db";
-import { agendaItems } from "~/server/db/schema";
-
-function addMonthsPreservingDay(date: Date, monthCount: number) {
-	const nextDate = new Date(date);
-	const originalDay = nextDate.getDate();
-
-	nextDate.setDate(1);
-	nextDate.setMonth(nextDate.getMonth() + monthCount);
-
-	const lastDayOfTargetMonth = new Date(
-		nextDate.getFullYear(),
-		nextDate.getMonth() + 1,
-		0,
-	).getDate();
-
-	nextDate.setDate(Math.min(originalDay, lastDayOfTargetMonth));
-
-	return nextDate;
-}
+import { agendaItems, agendaOccurrences } from "~/server/db/schema";
+import { getNextMonthlyOccurrence } from "~/server/agenda/schedule";
 
 function getNextRecurringDate(
 	targetDate: Date,
@@ -46,12 +29,7 @@ function getNextRecurringDate(
 	}
 
 	if (repeatInterval === "monthly") {
-		do {
-			const advancedDate = addMonthsPreservingDay(nextTargetDate, 1);
-			nextTargetDate.setTime(advancedDate.getTime());
-		} while (nextTargetDate <= now);
-
-		return nextTargetDate;
+		return getNextMonthlyOccurrence(targetDate, now);
 	}
 
 	return null;
@@ -68,6 +46,21 @@ export async function POST(req: Request) {
 	try {
 		const body = await req.json();
 		const ids: string[] = body.ids || [];
+		const occurrenceIds: string[] = body.occurrenceIds || [];
+		if (occurrenceIds.length) {
+			const ownedOccurrences = await db
+				.select({ id: agendaOccurrences.id })
+				.from(agendaOccurrences)
+				.innerJoin(agendaItems, eq(agendaItems.id, agendaOccurrences.agendaItemId))
+				.where(and(
+					eq(agendaItems.userId, session.user.id),
+					inArray(agendaOccurrences.id, occurrenceIds),
+				));
+			await db
+				.update(agendaOccurrences)
+				.set({ notified: true })
+				.where(inArray(agendaOccurrences.id, ownedOccurrences.map((occurrence) => occurrence.id)));
+		}
 		if (!ids.length)
 			return new Response(JSON.stringify({ ok: true }), {
 				status: 200,

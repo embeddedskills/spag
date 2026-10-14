@@ -5,9 +5,9 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
   assertGroupInHousehold,
   assertGroupMembership,
+  assertGroupOwner,
   ensureActiveHouseholdForUser,
 } from "~/server/finance/household-context";
-import { db } from "~/server/db";
 import {
   groupMemberRequests,
   groupMembers,
@@ -17,24 +17,6 @@ import {
 } from "~/server/db/schema";
 
 const groupCategory = z.enum(["family", "friends", "work", "other"]);
-
-async function assertGroupOwner(userId: string, groupId: string) {
-  const [member] = await db
-    .select({ role: groupMembers.role })
-    .from(groupMembers)
-    .where(
-      and(
-        eq(groupMembers.groupId, groupId),
-        eq(groupMembers.userId, userId),
-        eq(groupMembers.status, "active"),
-      ),
-    )
-    .limit(1);
-
-  if (member?.role !== "owner") {
-    throw new Error("Only the group owner can approve members.");
-  }
-}
 
 export const groupRouter = createTRPCRouter({
   listMine: protectedProcedure.query(async ({ ctx }) => {
@@ -107,11 +89,34 @@ export const groupRouter = createTRPCRouter({
           username: user.username,
           role: groupMembers.role,
           status: groupMembers.status,
+          canManageCategories: groupMembers.canManageCategories,
         })
         .from(groupMembers)
         .innerJoin(user, eq(user.id, groupMembers.userId))
         .where(eq(groupMembers.groupId, input.groupId))
         .orderBy(user.name);
+    }),
+
+  setCategoryManager: protectedProcedure
+    .input(z.object({
+      groupId: z.string().uuid(),
+      memberUserId: z.string().min(1),
+      enabled: z.boolean(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      await assertGroupOwner(ctx.session.user.id, input.groupId);
+      const [updated] = await ctx.db.update(groupMembers)
+        .set({ canManageCategories: input.enabled })
+        .where(and(
+          eq(groupMembers.groupId, input.groupId),
+          eq(groupMembers.userId, input.memberUserId),
+          eq(groupMembers.status, "active"),
+          eq(groupMembers.role, "member"),
+        ))
+        .returning({ id: groupMembers.id });
+
+      if (!updated) throw new Error("Active group member not found.");
+      return { ok: true };
     }),
 
   requestMember: protectedProcedure

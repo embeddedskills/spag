@@ -16,6 +16,18 @@ interface TimelineHeatmapProps {
   onCellClick: (dateString: string) => void;
 }
 
+function getCurrentWeekStartDateString() {
+  const today = new Date();
+  const dayOffset = (today.getDay() + 6) % 7;
+  const weekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dayOffset);
+  return weekStart.toISOString().split("T")[0]!;
+}
+
+function getCurrentMonthStartDateString() {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0]!;
+}
+
 export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({ 
   data, 
   tone, 
@@ -88,6 +100,9 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       <div className="flex gap-1 overflow-x-auto py-1.5 px-1 scrollbar-none snap-x">
         {data.map((item) => {
           const isSelected = selectedDateString === item.dateString;
+          const isCurrentPeriod = item.dateString === (
+            viewMode === 'weeks' ? getCurrentWeekStartDateString() : getCurrentMonthStartDateString()
+          );
           return (
             <button
             key={item.dateString}
@@ -102,6 +117,12 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
             <span className={`text-[9px] font-black tracking-tight leading-none ${item.count > 0 ? 'text-white' : 'text-gray-400 dark:text-gray-500'} ${item.hasPriority ? '-mt-0.5' : ''}`}>
                 {item.label}
             </span>
+
+            {isCurrentPeriod && (
+              <span className="absolute -top-1 rounded-full border border-indigo-300 bg-white px-1 py-px text-[7px] font-black uppercase leading-none text-indigo-700 shadow-sm dark:border-indigo-500/50 dark:bg-gray-900 dark:text-indigo-300">
+                Now
+              </span>
+            )}
 
             {/* FIXED RED DOT: Stays red, but gains a white tracking ring on colored squares for perfect contrast */}
             {item.hasPriority && (

@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -11,6 +11,10 @@ import {
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
   expenses,
+  budgets,
+  incomeSources,
+  groupMembers,
+  groups,
   householdInvites,
   householdMembers,
   households,
@@ -94,9 +98,11 @@ export const householdRouter = createTRPCRouter({
 
       const rows = await ctx.db
         .select({
+          userId: expenses.userId,
           paidByUserId: expenses.paidByUserId,
           splitWithUserIds: expenses.splitWithUserIds,
           amount: expenses.amount,
+          currency: expenses.currency,
         })
         .from(expenses)
         .where(eq(expenses.householdId, householdId));
@@ -106,18 +112,21 @@ export const householdRouter = createTRPCRouter({
           fromUserId: settlements.fromUserId,
           toUserId: settlements.toUserId,
           amount: settlements.amount,
+          currency: settlements.currency,
         })
         .from(settlements)
         .where(eq(settlements.householdId, householdId));
 
       const balances = new Map<string, number>();
       const userSet = new Set<string>();
+      const balanceKey = (memberId: string, currency: string) =>
+        `${currency}\u0000${memberId}`;
 
       for (const row of rows) {
-        const payerId = row.paidByUserId ?? userId;
-        const splitUserIds = row.splitWithUserIds
-          ? row.splitWithUserIds.split(",").filter(Boolean)
-          : [];
+        const payerId = row.paidByUserId ?? row.userId;
+        const splitUserIds = Array.from(
+          new Set((row.splitWithUserIds ?? "").split(",").filter(Boolean)),
+        ).filter((splitUserId) => splitUserId !== payerId);
 
         userSet.add(payerId);
         for (const splitUserId of splitUserIds) {
@@ -128,34 +137,51 @@ export const householdRouter = createTRPCRouter({
         const members = splitUserIds.length > 0 ? splitUserIds.length + 1 : 1;
         const share = total / members;
 
-        balances.set(payerId, (balances.get(payerId) ?? 0) + total - share);
+        const payerKey = balanceKey(payerId, row.currency);
+        balances.set(payerKey, (balances.get(payerKey) ?? 0) + total - share);
 
         for (const splitUserId of splitUserIds) {
-          balances.set(splitUserId, (balances.get(splitUserId) ?? 0) - share);
+          const splitKey = balanceKey(splitUserId, row.currency);
+          balances.set(splitKey, (balances.get(splitKey) ?? 0) - share);
         }
       }
 
       for (const settlement of settlementRows) {
         const amount = Number(settlement.amount ?? 0);
+        const fromKey = balanceKey(settlement.fromUserId, settlement.currency);
+        const toKey = balanceKey(settlement.toUserId, settlement.currency);
         balances.set(
-          settlement.fromUserId,
-          (balances.get(settlement.fromUserId) ?? 0) + amount,
+          fromKey,
+          (balances.get(fromKey) ?? 0) + amount,
         );
         balances.set(
-          settlement.toUserId,
-          (balances.get(settlement.toUserId) ?? 0) - amount,
+          toKey,
+          (balances.get(toKey) ?? 0) - amount,
         );
         userSet.add(settlement.fromUserId);
         userSet.add(settlement.toUserId);
       }
 
       return Array.from(userSet)
-        .map((memberId) => ({
-          userId: memberId,
-          balance: Number((balances.get(memberId) ?? 0).toFixed(2)),
-        }))
-        .filter((entry) => Math.abs(entry.balance) > 0.01)
-        .sort((left, right) => right.balance - left.balance);
+        .flatMap((memberId) =>
+          (["USD", "EUR", "BTC"] as const).map((currency) => ({
+            userId: memberId,
+            currency,
+            balance: Number(
+              (balances.get(balanceKey(memberId, currency)) ?? 0).toFixed(
+                currency === "BTC" ? 8 : 2,
+              ),
+            ),
+          })),
+        )
+        .filter((entry) =>
+          Math.abs(entry.balance) > (entry.currency === "BTC" ? 0.00000001 : 0.01),
+        )
+        .sort(
+          (left, right) =>
+            left.currency.localeCompare(right.currency) ||
+            right.balance - left.balance,
+        );
     }),
 
   settle: protectedProcedure
@@ -164,6 +190,7 @@ export const householdRouter = createTRPCRouter({
         fromUserId: z.string().min(1),
         toUserId: z.string().min(1),
         amount: z.number().positive().finite(),
+        currency: z.enum(["USD", "EUR", "BTC"]).default("USD"),
         householdId: z.string().uuid().optional(),
       }),
     )
@@ -185,13 +212,218 @@ export const householdRouter = createTRPCRouter({
           householdId,
           fromUserId: input.fromUserId,
           toUserId: input.toUserId,
-          amount: input.amount.toFixed(2),
+          amount: input.amount.toFixed(input.currency === "BTC" ? 8 : 2),
+          currency: input.currency,
           createdByUserId: userId,
         })
         .returning({ id: settlements.id });
 
       return created;
     }),
+
+  prepareAccountDeletion: protectedProcedure.mutation(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+
+    await ctx.db.transaction(async (tx) => {
+      const ownedHouseholds = await tx
+        .select({ id: households.id })
+        .from(households)
+        .where(eq(households.createdByUserId, userId));
+      const ownerHouseholds = await tx
+        .select({ householdId: householdMembers.householdId })
+        .from(householdMembers)
+        .where(
+          and(
+            eq(householdMembers.userId, userId),
+            eq(householdMembers.role, "owner"),
+          ),
+        );
+      const householdOwnershipIds = new Set([
+        ...ownedHouseholds.map((household) => household.id),
+        ...ownerHouseholds.map((membership) => membership.householdId),
+      ]);
+      const householdMemberships = await tx
+        .select({ householdId: householdMembers.householdId })
+        .from(householdMembers)
+        .where(eq(householdMembers.userId, userId));
+      const householdIds = new Set([
+        ...householdOwnershipIds,
+        ...householdMemberships.map((membership) => membership.householdId),
+      ]);
+      const householdSuccessors = new Map<string, string>();
+
+      for (const householdId of householdIds) {
+        const [successor] = await tx
+          .select({ userId: householdMembers.userId })
+          .from(householdMembers)
+          .where(
+            and(
+              eq(householdMembers.householdId, householdId),
+              ne(householdMembers.userId, userId),
+            ),
+          )
+          .orderBy(asc(householdMembers.createdAt))
+          .limit(1);
+        if (!successor) continue;
+        householdSuccessors.set(householdId, successor.userId);
+
+        if (householdOwnershipIds.has(householdId)) {
+          await tx
+            .update(households)
+            .set({ createdByUserId: successor.userId })
+            .where(
+              and(
+                eq(households.id, householdId),
+                eq(households.createdByUserId, userId),
+              ),
+            );
+          await tx
+            .update(householdMembers)
+            .set({ role: "owner" })
+            .where(
+              and(
+                eq(householdMembers.householdId, householdId),
+                eq(householdMembers.userId, successor.userId),
+              ),
+            );
+        }
+      }
+
+      const ownedGroups = await tx
+        .select({ id: groups.id })
+        .from(groups)
+        .where(eq(groups.createdByUserId, userId));
+      const ownerGroups = await tx
+        .select({ groupId: groupMembers.groupId })
+        .from(groupMembers)
+        .where(
+          and(
+            eq(groupMembers.userId, userId),
+            eq(groupMembers.role, "owner"),
+            eq(groupMembers.status, "active"),
+          ),
+        );
+      const groupOwnershipIds = new Set([
+        ...ownedGroups.map((group) => group.id),
+        ...ownerGroups.map((membership) => membership.groupId),
+      ]);
+      const groupMemberships = await tx
+        .select({ groupId: groupMembers.groupId })
+        .from(groupMembers)
+        .where(
+          and(
+            eq(groupMembers.userId, userId),
+            eq(groupMembers.status, "active"),
+          ),
+        );
+      const groupIds = new Set([
+        ...groupOwnershipIds,
+        ...groupMemberships.map((membership) => membership.groupId),
+      ]);
+      const groupSuccessors = new Map<string, string>();
+
+      for (const groupId of groupIds) {
+        const [successor] = await tx
+          .select({ userId: groupMembers.userId })
+          .from(groupMembers)
+          .where(
+            and(
+              eq(groupMembers.groupId, groupId),
+              eq(groupMembers.status, "active"),
+              ne(groupMembers.userId, userId),
+            ),
+          )
+          .orderBy(asc(groupMembers.createdAt))
+          .limit(1);
+        if (!successor) continue;
+        groupSuccessors.set(groupId, successor.userId);
+
+        if (groupOwnershipIds.has(groupId)) {
+          await tx
+            .update(groups)
+            .set({ createdByUserId: successor.userId })
+            .where(
+              and(
+                eq(groups.id, groupId),
+                eq(groups.createdByUserId, userId),
+              ),
+            );
+          await tx
+            .update(groupMembers)
+            .set({ role: "owner" })
+            .where(
+              and(
+                eq(groupMembers.groupId, groupId),
+                eq(groupMembers.userId, successor.userId),
+              ),
+            );
+        }
+      }
+
+      const departingExpenses = await tx
+        .select({
+          id: expenses.id,
+          householdId: expenses.householdId,
+          groupId: expenses.groupId,
+        })
+        .from(expenses)
+        .where(
+          or(
+            eq(expenses.userId, userId),
+            eq(expenses.createdByUserId, userId),
+          ),
+        );
+      for (const expense of departingExpenses) {
+        if (!expense.householdId) continue;
+        const successor = expense.groupId
+          ? groupSuccessors.get(expense.groupId)
+          : householdSuccessors.get(expense.householdId);
+        if (!successor) continue;
+        await tx
+          .update(expenses)
+          .set({ userId: successor, createdByUserId: successor })
+          .where(eq(expenses.id, expense.id));
+      }
+
+      const ownedBudgets = await tx
+        .select({ id: budgets.id, householdId: budgets.householdId, groupId: budgets.groupId })
+        .from(budgets)
+        .where(eq(budgets.ownerUserId, userId));
+      for (const budget of ownedBudgets) {
+        const successor = budget.groupId
+          ? groupSuccessors.get(budget.groupId)
+          : householdSuccessors.get(budget.householdId);
+        if (successor) {
+          await tx
+            .update(budgets)
+            .set({ ownerUserId: successor })
+            .where(eq(budgets.id, budget.id));
+        }
+      }
+
+      const ownedIncomeSources = await tx
+        .select({
+          id: incomeSources.id,
+          householdId: incomeSources.householdId,
+          groupId: incomeSources.groupId,
+        })
+        .from(incomeSources)
+        .where(eq(incomeSources.ownerUserId, userId));
+      for (const incomeSource of ownedIncomeSources) {
+        const successor = incomeSource.groupId
+          ? groupSuccessors.get(incomeSource.groupId)
+          : householdSuccessors.get(incomeSource.householdId);
+        if (successor) {
+          await tx
+            .update(incomeSources)
+            .set({ ownerUserId: successor })
+            .where(eq(incomeSources.id, incomeSource.id));
+        }
+      }
+    });
+
+    return { ok: true };
+  }),
 
   create: protectedProcedure
     .input(

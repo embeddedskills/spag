@@ -5,7 +5,8 @@ import { authClient } from "~/server/better-auth/client";
 
 type AgendaApiItem = {
   id: string;
-  title: string;
+  occurrenceId?: string;
+  title: string | null;
   content?: string;
   targetDate: string;
   type: string;
@@ -19,6 +20,7 @@ type UpcomingApiResponse = {
   pendingTodayItems: AgendaApiItem[];
   expiredItems: AgendaApiItem[];
   agenda: AgendaApiItem[];
+  scheduledOccurrences: AgendaApiItem[];
 };
 
 type NotificationStage =
@@ -36,6 +38,7 @@ type NotificationItem = {
   body: string;
   dueAt: string;
   agendaId?: string;
+  occurrenceId?: string;
   href?: string;
 };
 
@@ -140,7 +143,7 @@ export default function UpcomingNotifier() {
     }, AUTO_HIDE_MS);
   };
 
-  const notifyBrowser = (title: string, body: string) => {
+  const notifyBrowser = (title: string, body: string, occurrenceId?: string) => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
 
     if (Notification.permission === "default") {
@@ -149,7 +152,18 @@ export default function UpcomingNotifier() {
     }
 
     if (Notification.permission === "granted") {
-      new Notification(title, { body });
+      void navigator.serviceWorker?.ready.then((registration) => {
+        if (occurrenceId && registration.showNotification) {
+          const options = {
+            body,
+            actions: [{ action: "complete-occurrence", title: "Mark taken" }],
+            data: { url: "/agenda", occurrenceId },
+            tag: `occurrence-${occurrenceId}`,
+          } as NotificationOptions;
+          return registration.showNotification(title, options);
+        }
+        new Notification(title, { body });
+      }).catch(() => new Notification(title, { body }));
     }
   };
 
@@ -216,6 +230,19 @@ export default function UpcomingNotifier() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
+      });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const markOccurrencesAsNotified = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    try {
+      await fetch("/api/upcoming/mark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ occurrenceIds: ids }),
       });
     } catch (error) {
       console.error(error);
@@ -371,11 +398,12 @@ export default function UpcomingNotifier() {
           }
 
           data.pendingTodayItems.forEach((item) => {
+            const itemTitle = item.title ?? "Agenda item";
             nextNotifications.push({
               id: `today-${item.id}-${item.targetDate}`,
               source: "agenda",
               stage: "todayPending",
-              title: item.title,
+              title: itemTitle,
               body: item.content ?? "Due today",
               dueAt: item.targetDate,
               agendaId: item.id,
@@ -383,17 +411,24 @@ export default function UpcomingNotifier() {
             });
 
             notifyBrowser(
-              `Due today: ${item.title}`,
+              `Due today: ${itemTitle}`,
               item.content ?? "This item is due today.",
             );
+
+            // Prevent the regular polling branch from re-notifying this item.
+            const itemStage = nextStage(nowMs, new Date(item.targetDate).getTime());
+            if (itemStage) {
+              stageCacheRef.current.add(`agenda:${item.id}:${item.targetDate}:${itemStage}`);
+            }
           });
 
           data.expiredItems.forEach((item) => {
+            const itemTitle = item.title ?? "Agenda item";
             nextNotifications.push({
               id: `expired-${item.id}-${item.targetDate}`,
               source: "agenda",
               stage: "expired",
-              title: item.title,
+              title: itemTitle,
               body: item.content ?? "This item is overdue",
               dueAt: item.targetDate,
               agendaId: item.id,
@@ -401,9 +436,12 @@ export default function UpcomingNotifier() {
             });
 
             notifyBrowser(
-              `Expired: ${item.title}`,
+              `Expired: ${itemTitle}`,
               item.content ?? "This item is overdue.",
             );
+
+            // Prevent the regular polling branch from re-notifying this item.
+            stageCacheRef.current.add(`agenda:${item.id}:${item.targetDate}:expired`);
           });
 
           if (data.dueTodayCount > 0) {
@@ -417,12 +455,12 @@ export default function UpcomingNotifier() {
         }
 
         if (!shouldShowInitialDashboardDigest) {
-          for (const item of data.agenda) {
+          for (const item of [...data.agenda, ...data.scheduledOccurrences]) {
             const dueMs = new Date(item.targetDate).getTime();
             const stage = nextStage(nowMs, dueMs);
             if (!stage) continue;
 
-            const stageKey = `agenda:${item.id}:${item.targetDate}:${stage}`;
+            const stageKey = `agenda:${item.occurrenceId ?? item.id}:${item.targetDate}:${stage}`;
             if (stageCacheRef.current.has(stageKey)) continue;
 
             stageCacheRef.current.add(stageKey);
@@ -434,19 +472,22 @@ export default function UpcomingNotifier() {
                 : stage === "oneHour"
                   ? "is due in 1 hour"
                   : "is due in 3 hours";
+                const itemTitle = item.title ?? "Agenda item";
 
             nextNotifications.push({
               id: baseId,
               source: "agenda",
               stage,
-              title: item.title,
+              title: itemTitle,
               body: item.content ?? suffix,
               dueAt: item.targetDate,
               agendaId: item.id,
+              occurrenceId: item.occurrenceId,
               href: `/agenda?edit=${encodeURIComponent(item.id)}&source=agenda`,
             });
 
-            notifyBrowser(`Reminder: ${item.title}`, suffix);
+            notifyBrowser(`Reminder: ${itemTitle}`, suffix, item.occurrenceId);
+            if (item.occurrenceId) void markOccurrencesAsNotified([item.occurrenceId]);
           }
         }
 

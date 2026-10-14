@@ -6,6 +6,7 @@ import { groupRouter } from "~/server/api/routers/group";
 import { spendingRouter } from "./routers/spending";
 import { notificationRouter } from "./routers/notification";
 import { budgetRouter } from "./routers/budget";
+import { encryptionRouter } from "~/server/api/routers/encryption";
 
 /**
  * This is the primary router for your server.
@@ -20,6 +21,7 @@ export const appRouter = createTRPCRouter({
   post: postRouter,
   notification: notificationRouter,
   budget: budgetRouter,
+  encryption: encryptionRouter,
 });
 
 // export type definition of API

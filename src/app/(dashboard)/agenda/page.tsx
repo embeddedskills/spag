@@ -1,14 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { api } from "~/trpc/react";
 import TimestampPicker from "~/components/ui/timestamp-picker";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { 
   Trash2, Plus, Calendar, Bell, StickyNote, 
   CheckCircle, Repeat, Loader2, Clock, X, Pin 
 } from "lucide-react";
 import { TimelineHeatmap } from "~/components/ui/timeline-heatmap";
+import {
+  decryptPayload,
+  encryptPayload,
+  type EncryptedPayload,
+  type RecipientPublicKey,
+} from "~/lib/e2ee";
+import { useEncryptionVault } from "~/components/auth/encryption-vault-provider";
 
 function getStoredAgendaView(key: "agenda-timeline-view" | "agenda-notes-view") {
   if (typeof window === "undefined") return "list" as const;
@@ -17,7 +24,19 @@ function getStoredAgendaView(key: "agenda-timeline-view" | "agenda-notes-view") 
   return value === "grid" ? "grid" : "list";
 }
 
+function getCurrentWeekStart() {
+  const today = new Date();
+  const dayOffset = (today.getDay() + 6) % 7;
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate() - dayOffset);
+}
+
+function getCurrentMonthStart() {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), 1);
+}
+
 export default function AgendaPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -25,6 +44,12 @@ export default function AgendaPage() {
   const [content, setContent] = useState("");
   const [type, setType] = useState("task");
   const [repeat, setRepeat] = useState("none");
+  const [scheduleMode, setScheduleMode] = useState<"legacy" | "fixedTimes" | "interval">("legacy");
+  const [scheduleTimes, setScheduleTimes] = useState<string[]>(["08:00"]);
+  const [intervalHours, setIntervalHours] = useState("8");
+  const [durationMode, setDurationMode] = useState<"ongoing" | "days" | "untilDate">("ongoing");
+  const [durationDays, setDurationDays] = useState("7");
+  const [endDate, setEndDate] = useState("");
   const [target, setTarget] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'targetDate' | 'createdAt'>('targetDate');
@@ -50,6 +75,8 @@ export default function AgendaPage() {
   const [pinnedExpanded, setPinnedExpanded] = useState(true);
   const [upcomingExpanded, setUpcomingExpanded] = useState(true);
   const [pastDueExpanded, setPastDueExpanded] = useState(true);
+  const [encryptionError, setEncryptionError] = useState("");
+  const [isMigratingLegacy, setIsMigratingLegacy] = useState(false);
 
   const categoryOptions = ["Work", "Personal", "Family", "Other"] as const;
   const getCategoryBadgeClasses = (value: string | null | undefined) => {
@@ -153,6 +180,11 @@ export default function AgendaPage() {
     const shadowClasses = getTimelineShadowClasses(tone);
     const accentClasses = getTimelineAccentClasses(tone);
     const chipClasses = getTimelineChipClasses(tone);
+    const today = new Date();
+    const todayOccurrences = occurrences.filter((occurrence) => {
+      if (occurrence.agendaItemId !== item.id) return false;
+      return new Date(occurrence.scheduledAt).toDateString() === today.toDateString();
+    });
 
     return (
       <div
@@ -163,7 +195,7 @@ export default function AgendaPage() {
         <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${item.isCompleted ? 'bg-gray-700' : accentClasses}`} />
 
         <div className={layout === "stacked" ? "flex flex-col items-start gap-2" : "flex items-center gap-3 min-w-0"}>
-        <button
+        {(item.type !== "reminder" || item.scheduleMode === "legacy") && <button
           onClick={(e) => {
             e.stopPropagation();
             toggleMutation.mutate({ id: item.id, isCompleted: !item.isCompleted });
@@ -179,7 +211,7 @@ export default function AgendaPage() {
         >
           <CheckCircle size={12} className={item.isCompleted ? 'text-white' : tone === 'gray' ? 'text-gray-400 group-hover:text-gray-200' : tone === 'purple' ? 'text-purple-400 group-hover:text-purple-200' : tone === 'indigo' ? 'text-indigo-400 group-hover:text-indigo-200' : 'text-blue-400 group-hover:text-blue-200'} />
           <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider">{item.isCompleted ? 'Completed' : 'Mark Done'}</span>
-        </button>
+        </button>}
 
 
           <div className="min-w-0 flex-1">
@@ -195,7 +227,7 @@ export default function AgendaPage() {
             </div>
             {item.type !== 'note' && item.targetDate && (
               <div className={`mt-1 flex items-center gap-1.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest ${tone === 'gray' ? 'text-gray-500' : 'text-gray-600'}`}>
-                <Clock size={11} /> {new Date(item.targetDate).toLocaleDateString()} at {new Date(item.targetDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <Clock size={11} /> {new Date(item.targetDate).toLocaleDateString("en-US")} at {new Date(item.targetDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
             )}
           </div>
@@ -231,6 +263,33 @@ export default function AgendaPage() {
           </div>
         </div>
 
+        {item.type === "reminder" && item.scheduleMode !== "legacy" && todayOccurrences.length > 0 && (
+          <div className="mt-3 rounded-xl border border-purple-500/15 bg-black/25 p-2">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[8px] font-black uppercase tracking-[0.2em] text-purple-300">Today</span>
+              <span className="text-[8px] font-black uppercase tracking-[0.15em] text-gray-600">
+                {todayOccurrences.filter((occurrence) => occurrence.isCompleted).length}/{todayOccurrences.length} done
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {todayOccurrences.map((occurrence) => (
+                <button
+                  key={occurrence.id}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleOccurrenceMutation.mutate({ id: occurrence.id, isCompleted: !occurrence.isCompleted });
+                  }}
+                  className={`rounded-lg border px-2 py-1 text-[9px] font-black tracking-wider transition-colors ${occurrence.isCompleted ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300" : "border-purple-500/30 bg-purple-500/10 text-purple-200 hover:border-purple-400"}`}
+                >
+                  {new Date(occurrence.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {occurrence.isCompleted ? " done" : ""}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {extraContent}
       </div>
     );
@@ -252,12 +311,66 @@ export default function AgendaPage() {
   }, [notesView]);
 
   const utils = api.useUtils();
-  const { data: items, isLoading } = api.agenda.getAll.useQuery();
+  const { keys: encryptionKeys, privateKey: unlockedPrivateKey } = useEncryptionVault();
+  const { data: storedItems, isLoading } = api.agenda.getAll.useQuery();
+  const { data: groupRecipients = [], isFetching: isFetchingGroupRecipients } =
+    api.encryption.getGroupRecipients.useQuery(
+      { groupId: groupId || "00000000-0000-0000-0000-000000000000" },
+      { enabled: Boolean(groupId) },
+    );
+  const [items, setItems] = useState<typeof storedItems>();
+  const occurrenceItemIds = (items ?? [])
+    .filter((item) => item.type === "reminder" && item.scheduleMode !== "legacy")
+    .map((item) => item.id);
+  const { data: occurrences = [] } = api.agenda.getOccurrences.useQuery(
+    { itemIds: occurrenceItemIds },
+    { enabled: occurrenceItemIds.length > 0 },
+  );
   const { data: sharedGroups = [] } = api.group.listMine.useQuery();
   const { data: groupMembers = [] } = api.group.getMembers.useQuery(
     { groupId: groupId || "00000000-0000-0000-0000-000000000000" },
     { enabled: Boolean(groupId) },
   );
+
+  useEffect(() => {
+    if (!storedItems || !encryptionKeys || !unlockedPrivateKey) {
+      setItems(undefined);
+      return;
+    }
+
+    let cancelled = false;
+    void Promise.all(
+      storedItems.map(async (item) => {
+        if (!item.encryptedPayload) {
+          return { ...item, title: item.title ?? "" };
+        }
+
+        const payload = await decryptPayload<{ title: string; content: string }>(
+          JSON.parse(item.encryptedPayload) as EncryptedPayload,
+          `agenda:${item.id}:text:v1`,
+          encryptionKeys.userId,
+          unlockedPrivateKey,
+        );
+        return { ...item, title: payload.title, content: payload.content };
+      }),
+    )
+      .then((decrypted) => {
+        if (!cancelled) {
+          setItems(decrypted);
+          setEncryptionError("");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setItems(undefined);
+          setEncryptionError(error instanceof Error ? error.message : "Unable to decrypt agenda data.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storedItems, encryptionKeys, unlockedPrivateKey]);
 
   const stickyItems = items?.filter(item => item.sticky && item.type !== 'note').sort((a, b) => {
     if (sortBy === 'targetDate') {
@@ -280,8 +393,8 @@ export default function AgendaPage() {
   const categoryFilter = searchCategory.toLowerCase();
   const typeFilter = searchType.toLowerCase();
 
-  const matchesFilters = (item: { title: string; content?: string | null; category?: string | null; type: string }) => {
-    if (titleFilter && !item.title.toLowerCase().includes(titleFilter)) return false;
+  const matchesFilters = (item: { title: string | null; content?: string | null; category?: string | null; type: string }) => {
+    if (titleFilter && !(item.title ?? "").toLowerCase().includes(titleFilter)) return false;
     if (contentFilter && !(item.content ?? "").toLowerCase().includes(contentFilter)) return false;
     if (categoryFilter !== "all" && (item.category ?? "other").toLowerCase() !== categoryFilter) return false;
     if (typeFilter !== "all" && item.type.toLowerCase() !== typeFilter) return false;
@@ -323,11 +436,11 @@ export default function AgendaPage() {
       const sd = startOf(d);
       let label: string;
       if (sd.getTime() === today.getTime()) {
-        label = `Due Today ${d.toLocaleDateString(undefined, { weekday: 'long' })} ${d.toLocaleDateString()}`;
+        label = `Due Today ${d.toLocaleDateString("en-US", { weekday: 'long' })} ${d.toLocaleDateString("en-US")}`;
       } else if (sd.getTime() === tomorrow.getTime()) {
-        label = `Due Tomorrow ${d.toLocaleDateString(undefined, { weekday: 'long' })} ${d.toLocaleDateString()}`;
+        label = `Due Tomorrow ${d.toLocaleDateString("en-US", { weekday: 'long' })} ${d.toLocaleDateString("en-US")}`;
       } else {
-        label = `Due ${d.toLocaleDateString(undefined, { weekday: 'long' })} ${d.toLocaleDateString()}`;
+        label = `Due ${d.toLocaleDateString("en-US", { weekday: 'long' })} ${d.toLocaleDateString("en-US")}`;
       }
       if (!buckets.has(label)) buckets.set(label, []);
       buckets.get(label)!.push(item);
@@ -363,24 +476,30 @@ export default function AgendaPage() {
   }, [items]);
 
   useEffect(() => {
-    if (!editTargetId || !items?.length) return;
+    if (!editTargetId) {
+      setHandledEditTargetId(null);
+      return;
+    }
+    if (!items) return;
     if (handledEditTargetId === editTargetId) return;
 
     const targetItem = items.find((item) => item.id === editTargetId);
-    if (!targetItem) {
-      setHandledEditTargetId(editTargetId);
-      return;
-    }
-
-    startEdit(targetItem);
+    if (targetItem) startEdit(targetItem);
     setHandledEditTargetId(editTargetId);
-  }, [editTargetId, handledEditTargetId, items]);
+    router.replace("/agenda", { scroll: false });
+  }, [editTargetId, handledEditTargetId, items, router]);
 
   const resetForm = () => {
     setTitle("");
     setContent("");
     setType("task");
     setRepeat("none");
+    setScheduleMode("legacy");
+    setScheduleTimes(["08:00"]);
+    setIntervalHours("8");
+    setDurationMode("ongoing");
+    setDurationDays("7");
+    setEndDate("");
     setTarget(null);
     setPinned(false);
     setIsCompleted(false);
@@ -438,6 +557,10 @@ export default function AgendaPage() {
     onSuccess: () => void utils.agenda.getAll.invalidate(),
   });
 
+  const toggleOccurrenceMutation = api.agenda.toggleOccurrence.useMutation({
+    onSuccess: () => void utils.agenda.getOccurrences.invalidate(),
+  });
+
   const updateMutation = api.agenda.update.useMutation({
     onSuccess: () => {
       resetForm();
@@ -446,6 +569,110 @@ export default function AgendaPage() {
     },
     onError: (err) => alert(err.message),
   });
+  const migrateLegacyMutation = api.agenda.update.useMutation({
+    onSuccess: () => void utils.agenda.getAll.invalidate(),
+  });
+
+  const encryptAgendaText = async (id: string) => {
+    if (!encryptionKeys || !unlockedPrivateKey) {
+      throw new Error("Unlock encryption before saving agenda items.");
+    }
+    if (groupId && isFetchingGroupRecipients) {
+      throw new Error("Wait for group encryption keys to load before saving.");
+    }
+
+    const ownerRecipient: RecipientPublicKey = {
+      userId: encryptionKeys.userId,
+      key: encryptionKeys.publicKey,
+    };
+    const recipientIds = !groupId
+      ? [encryptionKeys.userId]
+      : sharingMode === "participants"
+        ? [...new Set([...participantUserIds, encryptionKeys.userId])]
+        : groupRecipients.map((recipient) => recipient.userId);
+    const recipients = recipientIds.map((userId) => {
+      if (userId === ownerRecipient.userId) return ownerRecipient;
+      const publicKey = groupRecipients.find((recipient) => recipient.userId === userId)?.publicKey;
+      if (!publicKey) {
+        throw new Error("Every selected group member must set up encryption before sharing agenda text.");
+      }
+      return { userId, key: publicKey };
+    });
+
+    return encryptPayload(
+      { title, content },
+      `agenda:${id}:text:v1`,
+      recipients,
+    );
+  };
+
+  const migrateLegacyAgenda = async () => {
+    const legacyItems = (storedItems ?? []).filter(
+      (item) => !item.encryptedPayload && item.userId === encryptionKeys.userId,
+    );
+    if (legacyItems.length === 0) return;
+
+    setEncryptionError("");
+    setIsMigratingLegacy(true);
+    try {
+      for (const item of legacyItems) {
+        if (!encryptionKeys || !unlockedPrivateKey) {
+          throw new Error("Unlock encryption before migrating agenda items.");
+        }
+
+        const participantIds = (item.participantUserIds ?? "").split(",").filter(Boolean);
+        let recipients: RecipientPublicKey[] = [{
+          userId: encryptionKeys.userId,
+          key: encryptionKeys.publicKey,
+        }];
+
+        if (item.groupId && item.visibility !== "personal") {
+          const members = await utils.encryption.getGroupRecipients.fetch({ groupId: item.groupId });
+          const recipientIds = item.visibility === "participants"
+            ? [...new Set([...participantIds, encryptionKeys.userId])]
+            : members.map((member) => member.userId);
+          recipients = recipientIds.map((userId) => {
+            if (userId === encryptionKeys.userId) {
+              return { userId, key: encryptionKeys.publicKey };
+            }
+            const publicKey = members.find((member) => member.userId === userId)?.publicKey;
+            if (!publicKey) {
+              throw new Error("All current recipients need encryption keys before this item can be migrated.");
+            }
+            return { userId, key: publicKey };
+          });
+        }
+
+        const encryptedPayload = await encryptPayload(
+          { title: item.title ?? "", content: item.content ?? "" },
+          `agenda:${item.id}:text:v1`,
+          recipients,
+        );
+        await migrateLegacyMutation.mutateAsync({
+          id: item.id,
+          encryptedPayload,
+          type: item.type,
+          category: item.category ?? "Other",
+          repeatInterval: item.repeatInterval ?? "none",
+          startTime: item.type === "note" ? undefined : item.targetDate,
+          pinned: item.pinned ?? false,
+          sticky: item.sticky ?? false,
+          isCompleted: item.isCompleted ?? false,
+          groupId: item.groupId ?? undefined,
+          visibility: item.groupId && item.visibility !== "personal"
+            ? item.visibility as "group" | "participants"
+            : "personal",
+          participantUserIds: participantIds,
+        });
+      }
+
+      void utils.agenda.getAll.invalidate();
+    } catch (error) {
+      setEncryptionError(error instanceof Error ? error.message : "Unable to migrate all legacy agenda items.");
+    } finally {
+      setIsMigratingLegacy(false);
+    }
+  };
 
   const startEdit = (item: any) => {
     resetForm();
@@ -453,6 +680,12 @@ export default function AgendaPage() {
     setContent(item.content || "");
     setType(item.type);
     setRepeat(item.repeatInterval);
+    setScheduleMode(item.scheduleMode ?? "legacy");
+    setScheduleTimes(item.scheduleTimes ? item.scheduleTimes.split(",").filter(Boolean) : ["08:00"]);
+    setIntervalHours(item.intervalMinutes ? String(item.intervalMinutes / 60) : "8");
+    setDurationMode(item.durationMode ?? "ongoing");
+    setDurationDays(String(item.durationDays ?? 7));
+    setEndDate(item.endDate ? new Date(item.endDate).toISOString().slice(0, 10) : "");
     setTarget(item.targetDate ? item.targetDate.toISOString() : null);
     setPinned(item.pinned || false);
     setIsCompleted(item.isCompleted || false);
@@ -472,43 +705,45 @@ export default function AgendaPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (type !== 'note' && !target) {
       alert("Please select a due date and time before saving.");
       return;
     }
 
     const startTime = type === 'note' ? undefined : (target ? new Date(target) : undefined);
-    if (editingId) {
-      updateMutation.mutate({ 
-        id: editingId,
-        title, 
-        content, 
-        type, 
-        repeatInterval: repeat, 
-        startTime,
-        pinned,
-        sticky,
-        isCompleted,
+    const id = editingId ?? crypto.randomUUID();
+    try {
+      const encryptedPayload = await encryptAgendaText(id);
+      const sharedFields = {
+        id,
+        encryptedPayload,
+        type,
         category,
-        groupId: groupId || undefined,
-        visibility: groupId ? sharingMode : "personal",
-        participantUserIds,
-      });
-    } else {
-      addMutation.mutate({ 
-        title, 
-        content, 
-        type, 
-        category,
-        repeatInterval: repeat, 
+        repeatInterval: repeat,
+        scheduleMode: type === "reminder" ? scheduleMode : "legacy" as const,
+        scheduleTimes: type === "reminder" && scheduleMode === "fixedTimes" ? scheduleTimes : [],
+        intervalMinutes: type === "reminder" && scheduleMode === "interval" ? Math.round(Number(intervalHours) * 60) : undefined,
+        durationMode: type === "reminder" ? durationMode : "ongoing" as const,
+        durationDays: type === "reminder" && durationMode === "days" ? Number(durationDays) : undefined,
+        endDate: type === "reminder" && durationMode === "untilDate" && endDate ? new Date(`${endDate}T23:59:59`) : undefined,
         startTime,
         pinned,
         sticky,
         groupId: groupId || undefined,
-        visibility: groupId ? sharingMode : "personal",
+        visibility: groupId ? sharingMode : "personal" as const,
         participantUserIds,
-      });
+      };
+
+      if (editingId) {
+        await updateMutation.mutateAsync({ ...sharedFields, isCompleted });
+      } else {
+        await addMutation.mutateAsync(sharedFields);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        alert(error.message);
+      }
     }
   };
 
@@ -571,7 +806,7 @@ export default function AgendaPage() {
 
   // 1. Manage state for the active heatmap date filter window
   const [heatmapViewMode, setHeatmapViewMode] = useState<'weeks' | 'months'>('weeks');
-  const [selectedWeekStart, setSelectedWeekStart] = useState<Date | null>(null);
+  const [selectedWeekStart, setSelectedWeekStart] = useState<Date | null>(() => getCurrentWeekStart());
 
   // 2. Helper validation to check if an item falls within the 7-day filter window
   const isInSelectedWeek = (itemDate: Date | string) => {
@@ -604,6 +839,41 @@ export default function AgendaPage() {
       ]).filter(([_, group]) => (group || []).length > 0) as [string, typeof activeTasksReminders][])
     : groupedTasks;
 
+  const selectedScopeItemCount =
+    finalStickyGroups.reduce((count, [, group]) => count + group.length, 0) +
+    finalTaskGroups.reduce((count, [, group]) => count + group.length, 0);
+  const selectedStickyItemCount = finalStickyGroups.reduce((count, [, group]) => count + group.length, 0);
+  const selectedTaskItemCount = finalTaskGroups.reduce((count, [, group]) => count + group.length, 0);
+  const currentPeriodStart = heatmapViewMode === 'weeks' ? getCurrentWeekStart() : getCurrentMonthStart();
+  const isViewingCurrentPeriod = selectedWeekStart?.getTime() === currentPeriodStart.getTime();
+  const currentPeriodEnd = heatmapViewMode === 'weeks'
+    ? new Date(currentPeriodStart.getTime() + 7 * 24 * 60 * 60 * 1000)
+    : new Date(currentPeriodStart.getFullYear(), currentPeriodStart.getMonth() + 1, 1);
+  const closestUpcomingItem = isViewingCurrentPeriod && selectedScopeItemCount === 0
+    ? [...activeStickyItems, ...activeTasksReminders]
+        .filter((item) => !item.isCompleted && new Date(item.targetDate) >= currentPeriodEnd)
+        .sort((first, second) => new Date(first.targetDate).getTime() - new Date(second.targetDate).getTime())[0]
+    : undefined;
+  const closestUpcomingPeriodStart = closestUpcomingItem
+    ? heatmapViewMode === 'weeks'
+      ? new Date(
+          new Date(closestUpcomingItem.targetDate).getFullYear(),
+          new Date(closestUpcomingItem.targetDate).getMonth(),
+          new Date(closestUpcomingItem.targetDate).getDate() - ((new Date(closestUpcomingItem.targetDate).getDay() + 6) % 7),
+        )
+      : new Date(new Date(closestUpcomingItem.targetDate).getFullYear(), new Date(closestUpcomingItem.targetDate).getMonth(), 1)
+    : null;
+  const isInClosestUpcomingPeriod = (itemDate: Date | string) => {
+    if (!closestUpcomingPeriodStart) return false;
+    const date = new Date(itemDate);
+    if (heatmapViewMode === 'weeks') {
+      return date >= closestUpcomingPeriodStart && date < new Date(closestUpcomingPeriodStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
+    return date.getFullYear() === closestUpcomingPeriodStart.getFullYear() && date.getMonth() === closestUpcomingPeriodStart.getMonth();
+  };
+  const closestUpcomingStickyItems = activeStickyItems.filter((item) => isInClosestUpcomingPeriod(item.targetDate));
+  const closestUpcomingTaskItems = activeTasksReminders.filter((item) => isInClosestUpcomingPeriod(item.targetDate));
+
 
   // 4. Generate the matrix tracking grid array dynamically for the view
 // Generate data cells dynamically based on the toggled view mode
@@ -612,7 +882,7 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
   today.setHours(0, 0, 0, 0);
 
   if (heatmapViewMode === 'weeks') {
-    const weekStart = new Date(today.getTime() + i * 7 * 24 * 60 * 60 * 1000);
+    const weekStart = new Date(getCurrentWeekStart().getTime() + i * 7 * 24 * 60 * 60 * 1000);
     const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
     
     const count = [...activeStickyItems, ...activeTasksReminders].filter(item => {
@@ -657,6 +927,10 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
     bulkSetCompleteMutation.isPending ||
     bulkSetStickyMutation.isPending ||
     bulkSetCategoryMutation.isPending;
+  const legacyAgendaCount = (storedItems ?? []).filter((item) => !item.encryptedPayload).length;
+  const migratableLegacyAgendaCount = (storedItems ?? []).filter(
+    (item) => !item.encryptedPayload && item.userId === encryptionKeys.userId,
+  ).length;
 
   if (!mounted) return null;
 
@@ -687,12 +961,38 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
                 setIsOpen(true);
               }
             }} 
-            className={`p-2.5 sm:p-4 rounded-2xl transition-all duration-300 shadow-xl active:scale-95 flex items-center justify-center
+            className={`cursor-pointer gap-2 p-2.5 sm:px-4 sm:py-3 rounded-2xl transition-all duration-300 shadow-xl active:scale-95 flex items-center justify-center
               ${isOpen ? 'bg-gray-800 text-gray-400' : 'bg-blue-600 text-white shadow-blue-900/20'}`}
           >
             {isOpen ? <X className="w-5 h-5 sm:w-6 sm:h-6" /> : <Plus className="w-5 h-5 sm:w-6 sm:h-6" />}
+            <span className="text-[10px] font-black uppercase tracking-widest">
+              {isOpen ? 'Close' : 'Add event'}
+            </span>
           </button>
         </div>
+
+        {legacyAgendaCount > 0 && (
+          <section className="mb-6 flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-bold text-amber-200">
+                {legacyAgendaCount} agenda {legacyAgendaCount === 1 ? "item is" : "items are"} still stored as plaintext.
+              </p>
+              <p className="mt-1 text-xs text-gray-400">
+                Migration encrypts your items in this browser. Shared items from other owners must be migrated by their owner.
+              </p>
+              {encryptionError && <p role="alert" className="mt-2 text-xs text-red-400">{encryptionError}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => void migrateLegacyAgenda()}
+              disabled={isMigratingLegacy || migratableLegacyAgendaCount === 0}
+              className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-xs font-black uppercase tracking-wider text-black disabled:opacity-50"
+            >
+              {isMigratingLegacy && <Loader2 className="h-4 w-4 animate-spin" />}
+              {migratableLegacyAgendaCount === 0 ? "Waiting for owners" : "Encrypt my legacy items"}
+            </button>
+          </section>
+        )}
 
         {/* NEXUS CREATION BOX */}
         {isOpen && (
@@ -718,7 +1018,7 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
             {editingId && type === 'reminder' && editingCreatedAt && (
               <div className="mb-4 sm:mb-6 rounded-xl border border-purple-500/30 bg-purple-500/10 p-3 sm:p-4">
                 <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-purple-300">
-                  Created at {editingCreatedAt.toLocaleDateString()} {editingCreatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  Created at {editingCreatedAt.toLocaleDateString("en-US")} {editingCreatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
               </div>
             )}
@@ -829,18 +1129,135 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
               )}
               
               {type === 'reminder' && (
-                <div className="flex items-center gap-4 bg-black/40 p-5 rounded-2xl border border-gray-800 group transition-colors focus-within:border-purple-500/50">
-                  <Repeat size={18} className="text-purple-500" />
-                  <select 
-                    value={repeat} 
-                    onChange={e => setRepeat(e.target.value)} 
-                    className="bg-transparent text-xs font-bold uppercase tracking-widest text-gray-400 outline-none cursor-pointer flex-1"
-                  >
-                    <option value="none">Discrete Event (No Repeat)</option>
-                    <option value="daily">Daily Synchronisation</option>
-                    <option value="weekly">Weekly Cycle</option>
-                    <option value="monthly">Monthly Cycle</option>
-                  </select>
+                <div className="space-y-3 rounded-2xl border border-gray-800 bg-black/40 p-4 sm:p-5">
+                  <div className="flex items-center gap-4">
+                    <Repeat size={18} className="text-purple-500" />
+                    <select
+                      value={scheduleMode}
+                      onChange={(event) => setScheduleMode(event.target.value as typeof scheduleMode)}
+                      className="bg-transparent text-xs font-bold uppercase tracking-widest text-gray-400 outline-none cursor-pointer flex-1"
+                    >
+                      <option value="legacy">Single / existing repeat</option>
+                      <option value="fixedTimes">Several fixed times each day</option>
+                      <option value="interval">Every number of hours</option>
+                    </select>
+                  </div>
+
+                  {scheduleMode === "legacy" && (
+                    <select
+                      value={repeat}
+                      onChange={(event) => setRepeat(event.target.value)}
+                      className="w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-3 text-xs font-bold uppercase tracking-widest text-gray-400 outline-none"
+                    >
+                      <option value="none">Discrete event (no repeat)</option>
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                    </select>
+                  )}
+
+                  {scheduleMode === "fixedTimes" && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">Times each day</p>
+                      {scheduleTimes.map((time, index) => (
+                        <div key={`${index}-${time}`} className="flex items-center gap-2">
+                          <input
+                            type="time"
+                            value={time}
+                            onChange={(event) => setScheduleTimes((current) => current.map((value, currentIndex) => currentIndex === index ? event.target.value : value))}
+                            className="min-w-0 flex-1 rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-sm text-gray-200 outline-none"
+                          />
+                          {scheduleTimes.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setScheduleTimes((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                              className="rounded-lg border border-gray-800 px-3 py-2 text-xs text-gray-500 hover:border-red-500/50 hover:text-red-300"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setScheduleTimes((current) => [...current, "12:00"])}
+                        disabled={scheduleTimes.length >= 12}
+                        className="rounded-lg border border-purple-500/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-purple-300 disabled:opacity-40"
+                      >
+                        Add time
+                      </button>
+                    </div>
+                  )}
+
+                  {scheduleMode === "interval" && (
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">
+                        Repeat from the first dose time
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {["4", "6", "8", "12", "24"].map((hours) => (
+                          <button
+                            key={hours}
+                            type="button"
+                            onClick={() => setIntervalHours(hours)}
+                            className={`rounded-lg border px-3 py-2 text-xs font-black transition-colors ${intervalHours === hours ? "border-purple-400 bg-purple-500/20 text-purple-200" : "border-gray-800 bg-gray-950 text-gray-500 hover:border-purple-500/50 hover:text-purple-300"}`}
+                          >
+                            {hours}h
+                          </button>
+                        ))}
+                      </div>
+                      <label className="flex items-center gap-3 text-sm text-gray-400">
+                        Custom interval
+                        <input
+                          type="number"
+                          min="0.25"
+                          max="24"
+                          step="0.25"
+                          value={intervalHours}
+                          onChange={(event) => setIntervalHours(event.target.value)}
+                          className="w-24 rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-sm text-gray-200 outline-none"
+                        />
+                        hours
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="border-t border-gray-800 pt-3">
+                    <label className="flex flex-col gap-2 text-sm text-gray-400 sm:flex-row sm:items-center">
+                      Duration
+                      <select
+                        value={durationMode}
+                        onChange={(event) => setDurationMode(event.target.value as typeof durationMode)}
+                        className="rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-xs font-bold uppercase tracking-widest text-gray-300 outline-none sm:flex-1"
+                      >
+                        <option value="ongoing">Ongoing until stopped</option>
+                        <option value="days">For a number of days</option>
+                        <option value="untilDate">Until a date</option>
+                      </select>
+                    </label>
+                    {durationMode === "days" && (
+                      <label className="mt-2 flex items-center gap-3 text-sm text-gray-400">
+                        Course length
+                        <input
+                          type="number"
+                          min="1"
+                          max="3650"
+                          value={durationDays}
+                          onChange={(event) => setDurationDays(event.target.value)}
+                          className="w-24 rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-sm text-gray-200 outline-none"
+                        />
+                        days
+                      </label>
+                    )}
+                    {durationMode === "untilDate" && (
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(event) => setEndDate(event.target.value)}
+                        className="mt-2 w-full rounded-xl border border-gray-800 bg-gray-950 px-3 py-2 text-sm text-gray-200 outline-none"
+                      />
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -865,9 +1282,9 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
                 <button 
                   onClick={handleSubmit} 
                   disabled={!title || (type !== 'note' && !target) || addMutation.isPending || updateMutation.isPending} 
-                  className="bg-white text-black px-8 sm:px-12 py-3 sm:py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-blue-500 hover:text-white transition-all active:scale-95 disabled:opacity-30 disabled:grayscale order-1 sm:order-2"
+                  className="cursor-pointer bg-black text-white px-8 sm:px-12 py-3 sm:py-4 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-blue-500 hover:text-white transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 disabled:grayscale order-1 sm:order-2"
                 >
-                  {addMutation.isPending || updateMutation.isPending ? <Loader2 className="animate-spin w-4 h-4 sm:w-5 sm:h-5" /> : editingId ? `Update ${type}` : `Initialize ${type}`}
+                  {addMutation.isPending || updateMutation.isPending ? <Loader2 className="animate-spin w-4 h-4 sm:w-5 sm:h-5" /> : editingId ? `Update ${type}` : `Add ${type}`}
                 </button>
               </div>
             </div>
@@ -1050,8 +1467,8 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
           data={heatmapData}
           viewMode={heatmapViewMode}
           onViewModeChange={(mode) => {
-            setSelectedWeekStart(null); // Clear active filter state on toggle
             setHeatmapViewMode(mode);
+            setSelectedWeekStart(mode === 'weeks' ? getCurrentWeekStart() : getCurrentMonthStart());
           }}
           selectedDateString={selectedWeekStart ? selectedWeekStart.toISOString().split("T")[0]! : null}
           onCellClick={(dateString) => {
@@ -1069,7 +1486,7 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
         {selectedWeekStart && (
           <div className="mb-4 flex items-center justify-between bg-gray-900/40 border border-gray-800 rounded-xl px-4 py-2">
             <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-              Viewing Week of {selectedWeekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} Only
+              Viewing {heatmapViewMode === 'weeks' ? 'week of' : 'month of'} {selectedWeekStart.toLocaleDateString(undefined, heatmapViewMode === 'weeks' ? { month: 'short', day: 'numeric' } : { month: 'long', year: 'numeric' })}
             </span>
             <button 
               onClick={() => setSelectedWeekStart(null)}
@@ -1082,7 +1499,7 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
 
 
         {/* STICKY SECTION */}
-        {activeStickyItems.length > 0 && (
+        {selectedStickyItemCount > 0 && (
           <div className="mb-8 sm:mb-12">
             <div className="mb-4 sm:mb-6 flex items-end justify-between gap-4">
               <p className="text-[9px] sm:text-[10px] text-indigo-400 uppercase tracking-[0.35em] font-black mb-1">Priority</p>
@@ -1092,7 +1509,7 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
                 onClick={() => setPinnedExpanded((v) => !v)}
                 className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.25em] text-indigo-300 transition-all hover:border-indigo-400/40 cursor-pointer"
               >
-                {activeStickyItems.length} items {pinnedExpanded ? "−" : "+"}
+                {selectedStickyItemCount} items {pinnedExpanded ? "−" : "+"}
               </button>
             </div>
             {pinnedExpanded && finalStickyGroups.map(([label, group]) => (
@@ -1109,14 +1526,38 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
         {/* TIMELINE LIST (Normal Priority) */}
         {isLoading ? (
           <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>
-        ) : activeSequenceCount === 0 ? (
-          <div className="text-center p-20 bg-gray-900/20 border border-dashed border-gray-800 rounded-[2.5rem]">
-            <p className="text-gray-600 text-xs uppercase tracking-[0.4em] font-black">{filteredResultCount === 0 ? 'No Search Matches Found' : 'No Active Sequences Found'}</p>
-            {expiredItems.length > 0 && (
-              <p className="text-[10px] text-gray-700 mt-3 uppercase tracking-[0.2em]">See expired section below</p>
+        ) : (selectedWeekStart ? selectedScopeItemCount === 0 : activeSequenceCount === 0) ? (
+          <>
+            <div className="text-center p-20 bg-gray-900/20 border border-dashed border-gray-800 rounded-[2.5rem]">
+              <p className="text-gray-600 text-xs uppercase tracking-[0.4em] font-black">
+                {selectedWeekStart
+                  ? heatmapViewMode === 'weeks'
+                    ? 'Nothing Planned For This Week'
+                    : 'Nothing Planned For This Month'
+                  : filteredResultCount === 0
+                    ? 'No Search Matches Found'
+                    : 'No Active Sequences Found'}
+              </p>
+              {expiredItems.length > 0 && (
+                <p className="text-[10px] text-gray-700 mt-3 uppercase tracking-[0.2em]">See expired section below</p>
+              )}
+            </div>
+
+            {closestUpcomingPeriodStart && (
+              <section className="mt-8">
+                <p className="mb-4 text-[10px] font-black uppercase tracking-[0.35em] text-blue-400">
+                  Next planned {heatmapViewMode === 'weeks' ? 'week of' : 'month of'} {closestUpcomingPeriodStart.toLocaleDateString(undefined, heatmapViewMode === 'weeks' ? { month: 'short', day: 'numeric' } : { month: 'long', year: 'numeric' })}
+                </p>
+                <div className={`grid gap-2 sm:gap-3 ${timelineView === "list" ? "grid-cols-1" : "grid-cols-2 xl:grid-cols-3"}`}>
+                  {closestUpcomingStickyItems.map((item) => renderTimelineCard(item, 'indigo', timelineView === "grid" ? 'stacked' : 'row'))}
+                  {closestUpcomingTaskItems.map((item) => renderTimelineCard(item, item.type === 'reminder' ? 'purple' : 'blue', timelineView === "grid" ? 'stacked' : 'row'))}
+                </div>
+              </section>
             )}
-          </div>
+          </>
         ) : (
+          <>
+          {selectedTaskItemCount > 0 && (
           <>
             <div className="mb-4 flex items-center justify-between gap-2">
               <p className="text-[9px] sm:text-[10px] text-blue-400 uppercase tracking-[0.35em] font-black">Non-Priority</p>
@@ -1126,7 +1567,7 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
                 onClick={() => setUpcomingExpanded((v) => !v)}
                 className="rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.25em] text-blue-300 transition-all hover:border-blue-400/40 cursor-pointer"
               >
-                {activeTasksReminders.length} items {upcomingExpanded ? "−" : "+"}
+                {selectedTaskItemCount} items {upcomingExpanded ? "−" : "+"}
               </button>
             </div>
 
@@ -1139,6 +1580,8 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
                 </div>
               </div>
             ))}
+          </>
+          )}
           </>
         )}
 
@@ -1203,7 +1646,7 @@ const heatmapData = Array.from({ length: heatmapViewMode === 'weeks' ? 12 : 6 },
                     )}
                     <div className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-gray-700">
                       <p>
-                        Created {new Date(note.createdAt).toLocaleDateString()} at {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        Created {new Date(note.createdAt).toLocaleDateString("en-US")} at {new Date(note.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 flex-wrap">

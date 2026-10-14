@@ -11,6 +11,7 @@ SPAG is a personal workspace that combines agenda management and spending tracki
 - Mark items as priority (`sticky`)
 - Pin notes separately from priority timeline items
 - Add recurring reminders with `daily`, `weekly`, or `monthly` repeat intervals
+- Monthly reminders retain their original day where possible (for example, a reminder created on the 31st stays anchored to month-end in shorter months)
 - Search by title, content, category, and type
 - Bulk select, bulk delete, bulk complete, bulk priority, and bulk category updates
 - Switch timeline between `List` and `Grid`
@@ -21,6 +22,8 @@ SPAG is a personal workspace that combines agenda management and spending tracki
 ### Spending
 - View a simple ledger of saved spending entries
 - Add transactions with description, amount, category, currency, and timestamp
+- Track USD, EUR, and BTC with currency-specific balances and settlement records; optional display-currency conversion is for presentation
+- Store BTC values to eight decimal places and fiat values to two decimal places
 - Use automatic timestamping or provide a manual date/time
 - View a current "Today" total card
 
@@ -145,6 +148,8 @@ npm run db:generate
 npm run db:migrate
 ```
 
+Apply committed SQL migrations with `npm run db:migrate` when deploying schema changes; `db:push` is intended for local development.
+
 ### 5. Start the app
 
 ```bash
@@ -199,3 +204,5 @@ Authenticated dashboard routes are protected through Better Auth. Unauthenticate
 ## Status
 
 This repository is actively evolving. The README reflects the functionality implemented in the current codebase, not an aspirational roadmap.
+
+See [VERSION.md](./VERSION.md) for a summary of the current unreleased working-tree changes.

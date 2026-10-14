@@ -17,6 +17,10 @@ export const env = createEnv({
       .default("development"),
       BETTER_AUTH_URL: z.string().url(),
     VAPID_PRIVATE_KEY: z.string().optional(),
+    VAPID_SUBJECT: z
+      .string()
+      .regex(/^(mailto:[^\s@]+@[^\s@]+|https:\/\/\S+)$/)
+      .optional(),
   },
 
   client: {
@@ -37,6 +41,7 @@ export const env = createEnv({
     NEXT_PUBLIC_BETTER_AUTH_URL: process.env.NEXT_PUBLIC_BETTER_AUTH_URL,
     NEXT_PUBLIC_VAPID_PUBLIC_KEY: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
+    VAPID_SUBJECT: process.env.VAPID_SUBJECT,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

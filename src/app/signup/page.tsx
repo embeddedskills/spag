@@ -11,36 +11,37 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const router = useRouter();
 
   const handleSignup = async () => {
     setIsLoading(true);
-    const emailForAuth = (email && email.trim() !== "") ? email.trim() : `${username.trim()}@local.test`;
-    
-    const { data, error } = await authClient.signUp.email({
-      email: emailForAuth,
-      password,
-      name,
-      callbackURL: "/",
-    });
-
-    if (error) {
-      setIsLoading(false);
-      alert(error.message);
-      return;
-    }
+    setErrorMessage("");
+    const normalizedUsername = username.trim();
+    const emailForAuth =
+      email.trim() || `${normalizedUsername}@local.test`;
 
     try {
-      await fetch("/api/set-username", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: emailForAuth, username }),
+      const { error } = await authClient.signUp.email({
+        email: emailForAuth,
+        password,
+        name,
+        username: normalizedUsername,
+        callbackURL: "/",
       });
-    } catch (e) {
-      console.error("set-username failed", e);
-    }
 
-    router.push("/");
+      if (error) {
+        throw new Error(error.message || "Unable to create account.");
+      }
+
+      router.push("/");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to create account.",
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -64,6 +65,11 @@ export default function SignupPage() {
         </div>
 
         <div className="space-y-4">
+          {errorMessage && (
+            <p className="text-sm text-red-400" role="alert">
+              {errorMessage}
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-4">
             <div className="space-y-1">
               <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500 ml-1">Full Name</label>

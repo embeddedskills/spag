@@ -29,19 +29,17 @@ export const auth = betterAuth({
     enabled: true,
   },
   plugins: [username()],
-  // ADD THIS FOR YOUR PHONE:
   trustedOrigins: [
-    "http://localhost:3000",
-    "http://192.168.1.231:4000" ,
-    "http://127.0.0.1:4000"
+    ...new Set([
+      env.BETTER_AUTH_URL,
+      env.NEXT_PUBLIC_BETTER_AUTH_URL,
+      ...(env.NODE_ENV === "development" ? ["http://localhost:3000"] : []),
+    ]),
   ],
-  // ADD THIS FOR CROSS-DEVICE COOKIES:
   advanced: {
     cookiePrefix: "better-auth",
-    useSecureCookies: false, // Essential for HTTP testing on phones
-    crossAddress: true,
-    disableOriginCheck: true,
+    useSecureCookies: env.NODE_ENV === "production",
   },
-  baseURL: process.env.BETTER_AUTH_URL, 
+  baseURL: env.BETTER_AUTH_URL,
 });
 export type Session = typeof auth.$Infer.Session;

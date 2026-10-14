@@ -2,15 +2,19 @@
 import { db } from "@/server/db";
 import { pushSubscriptions } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { webPush } from "./notification-utils";
+import { assertWebPushConfigured, webPush } from "./notification-utils";
 
 interface NotificationPayload {
   title: string;
   body: string;
   url?: string;
+  occurrenceId?: string;
+  tag?: string;
 }
 
 export async function sendPushNotificationToUser(userId: string, payload: NotificationPayload) {
+  assertWebPushConfigured();
+
   // 1. Fetch all registered mobile/desktop devices for this specific user via Drizzle
   const devices = await db
     .select()

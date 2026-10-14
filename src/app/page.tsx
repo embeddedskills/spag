@@ -3,6 +3,7 @@ import { authClient } from "~/server/better-auth/client";
 import Link from "next/link";
 import { Calendar, Wallet, LayoutDashboard, TrendingUp, Clock, Users, Settings, PieChart } from "lucide-react";
 import AppHeader from "~/components/ui/app-header";
+import { EncryptionVaultProvider } from "~/components/auth/encryption-vault-provider";
 
 
 export default function HomePage() {
@@ -60,8 +61,9 @@ export default function HomePage() {
   }
 
   return (
-    <AppHeader>
-      <main className="theme-invert-on-light min-h-0 bg-black p-6 text-white md:p-12 lg:p-20">
+    <EncryptionVaultProvider>
+      <AppHeader showSmartBar>
+        <main className="theme-invert-on-light min-h-0 bg-black p-6 text-white md:p-12 lg:p-20">
         <div className="mx-auto mb-8 max-w-6xl">
           <p className="mb-1 text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">S P A G</p>
           <h1 className="text-2xl font-bold tracking-tight text-white">Welcome, {session.user.name}</h1>
@@ -168,7 +170,8 @@ export default function HomePage() {
           <Settings className="absolute -bottom-4 -right-4 sm:-bottom-6 sm:-right-6 w-20 h-20 sm:w-40 sm:h-40 text-slate-400 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-500 -rotate-12" />
         </Link>
         </div>
-      </main>
-    </AppHeader>
+        </main>
+      </AppHeader>
+    </EncryptionVaultProvider>
   );
 }

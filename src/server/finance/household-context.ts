@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 
 import { db } from "~/server/db";
 import {
@@ -11,69 +12,65 @@ import {
 import { groups } from "~/server/db/schema";
 
 export async function ensureActiveHouseholdForUser(userId: string) {
-  const [activeUser] = await db
-    .select({ activeHouseholdId: user.activeHouseholdId })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-
-  if (activeUser?.activeHouseholdId) {
-    const [member] = await db
-      .select({ householdId: householdMembers.householdId })
-      .from(householdMembers)
-      .where(
-        and(
-          eq(householdMembers.userId, userId),
-          eq(householdMembers.householdId, activeUser.activeHouseholdId),
-        ),
-      )
+  return db.transaction(async (tx) => {
+    const [activeUser] = await tx
+      .select({ activeHouseholdId: user.activeHouseholdId })
+      .from(user)
+      .where(eq(user.id, userId))
+      .for("update")
       .limit(1);
 
-    if (member) {
-      return member.householdId;
+    if (!activeUser) throw new Error("Unable to find the current user.");
+
+    if (activeUser.activeHouseholdId) {
+      const [member] = await tx
+        .select({ householdId: householdMembers.householdId })
+        .from(householdMembers)
+        .where(
+          and(
+            eq(householdMembers.userId, userId),
+            eq(householdMembers.householdId, activeUser.activeHouseholdId),
+          ),
+        )
+        .limit(1);
+
+      if (member) return member.householdId;
     }
-  }
 
-  const [membership] = await db
-    .select({ householdId: householdMembers.householdId })
-    .from(householdMembers)
-    .where(eq(householdMembers.userId, userId))
-    .orderBy(asc(householdMembers.createdAt))
-    .limit(1);
+    const [membership] = await tx
+      .select({ householdId: householdMembers.householdId })
+      .from(householdMembers)
+      .where(eq(householdMembers.userId, userId))
+      .orderBy(asc(householdMembers.createdAt))
+      .limit(1);
 
-  if (membership) {
-    await db
+    if (membership) {
+      await tx
+        .update(user)
+        .set({ activeHouseholdId: membership.householdId })
+        .where(eq(user.id, userId));
+      return membership.householdId;
+    }
+
+    const [createdHousehold] = await tx
+      .insert(households)
+      .values({ name: "My Household", createdByUserId: userId })
+      .returning({ id: households.id });
+
+    if (!createdHousehold) throw new Error("Unable to create household.");
+
+    await tx.insert(householdMembers).values({
+      householdId: createdHousehold.id,
+      userId,
+      role: "owner",
+    });
+    await tx
       .update(user)
-      .set({ activeHouseholdId: membership.householdId })
+      .set({ activeHouseholdId: createdHousehold.id })
       .where(eq(user.id, userId));
 
-    return membership.householdId;
-  }
-
-  const [createdHousehold] = await db
-    .insert(households)
-    .values({
-      name: "My Household",
-      createdByUserId: userId,
-    })
-    .returning({ id: households.id });
-
-  if (!createdHousehold) {
-    throw new Error("Unable to create household.");
-  }
-
-  await db.insert(householdMembers).values({
-    householdId: createdHousehold.id,
-    userId,
-    role: "owner",
+    return createdHousehold.id;
   });
-
-  await db
-    .update(user)
-    .set({ activeHouseholdId: createdHousehold.id })
-    .where(eq(user.id, userId));
-
-  return createdHousehold.id;
 }
 
 export async function assertHouseholdMembership(userId: string, householdId: string) {
@@ -89,7 +86,10 @@ export async function assertHouseholdMembership(userId: string, householdId: str
     .limit(1);
 
   if (!member) {
-    throw new Error("You do not have access to this household.");
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You do not have access to this household.",
+    });
   }
 }
 
@@ -117,7 +117,31 @@ export async function assertGroupMembership(userId: string, groupId: string) {
     .limit(1);
 
   if (!member) {
-    throw new Error("You do not have access to this group.");
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You do not have access to this group.",
+    });
+  }
+}
+
+export async function assertGroupOwner(userId: string, groupId: string) {
+  const [member] = await db
+    .select({ role: groupMembers.role })
+    .from(groupMembers)
+    .where(
+      and(
+        eq(groupMembers.groupId, groupId),
+        eq(groupMembers.userId, userId),
+        eq(groupMembers.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (member?.role !== "owner") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only a group owner can manage this group record.",
+    });
   }
 }
 
@@ -129,6 +153,9 @@ export async function assertGroupInHousehold(groupId: string, householdId: strin
     .limit(1);
 
   if (!group) {
-    throw new Error("This group does not belong to the selected household.");
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "This group does not belong to the selected household.",
+    });
   }
 }
